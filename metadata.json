@@ -1,0 +1,6 @@
+{
+  "name": "Industrial Automation System",
+  "description": "An interactive environment initialization, layout configuration, and simulation suite for high-density industrial automation and shop-floor manufacturing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
