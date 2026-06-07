@@ -6,22 +6,32 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Sliders, LayoutGrid, Play, Pause, Plus, Minus, Maximize2, 
-  HelpCircle, Trash2, ArrowRight, Settings, Info, X, 
+  Trash2, ArrowRight, Settings, Info, X, 
   ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, AlertTriangle, MonitorPlay,
   GripVertical
 } from 'lucide-react';
-import { ShopTopology, PartFlowItem } from '../types';
+import { ShopTopology, PartFlowItem, StationTopology } from '../types';
 
 interface SimulationPanelProps {
   shops: ShopTopology[];
-  onNavigate: (step: 'configuration' | 'layout' | 'simulation') => void;
+  onNavigate: (step: 'configuration' | 'layout' | 'shop-layout' | 'simulation') => void;
   onUpdateShop: (id: number, updatedFields: Partial<ShopTopology>) => void;
+}
+
+interface SimulatedStationState {
+  id: string; // e.g. "1-1"
+  name: string; // e.g. "A1"
+  parts: PartFlowItem[]; // list of physical parts inside this station currently!
+  currentCountdown: number; // countdown tracker in seconds
+  cycleTime: number; // cycle time in seconds
+  bufferSize: number; // buffer capacity
+  successor?: string;
 }
 
 interface SimulatedShopState {
   id: number;
-  currentCountdown: number;
-  parts: PartFlowItem[];
+  name: string;
+  stations: SimulatedStationState[];
   connections: number[];
 }
 
@@ -43,7 +53,7 @@ export default function SimulationPanel({
   onNavigate,
   onUpdateShop
 }: SimulationPanelProps) {
-  // Find the single final shop of the line (highest ID or successor 'None')
+  // Finds the single final shop of the line (highest ID or successor 'None')
   const finalShopId = React.useMemo(() => {
     if (shops.length === 0) return 4;
     const noneSuccessor = shops.find(s => s.successor === 'None');
@@ -51,32 +61,40 @@ export default function SimulationPanel({
     return Math.max(...shops.map(s => s.id));
   }, [shops]);
 
-  // Dynamic pixel dimensions helper based on real-time layout width/height
-  const getShopWidthPx = (s: ShopTopology) => Math.max(160, s.width * 6.5);
-  const getShopHeightPx = (s: ShopTopology) => Math.max(120, s.height * 6.5);
+  // Dynamic dimension helpers
+  const getShopWidthPx = (s: ShopTopology) => {
+    const baseWidth = s.width || 30;
+    return Math.max(180, Math.min(480, Math.round((baseWidth / 30) * 288)));
+  };
+  const getShopHeightPx = (s: ShopTopology) => {
+    const count = s.stations || 3;
+    const baseHeight = 115 + count * 82;
+    const heightFactor = s.height ? (s.height / 30) : 1;
+    return Math.max(200, Math.min(800, Math.round(baseHeight * heightFactor)));
+  };
 
   // --- Animation and Drag-Pan State ---
-  const [isSimRunning, setIsSimRunning] = useState<boolean>(true);
-  const [zoomLevel, setZoomLevel] = useState<number>(1);
-  const [panX, setPanX] = useState<number>(0);
-  const [panY, setPanY] = useState<number>(0);
+  const [isSimRunning, setIsSimRunning] = useState<boolean>(false);
+  const [zoomLevel, setZoomLevel] = useState<number>(0.95);
+  const [panX, setPanX] = useState<number>(40);
+  const [panY, setPanY] = useState<number>(10);
 
-  // Timer and simulation clock speed controls
+  // Timer controls
   const [simSpeed, setSimSpeed] = useState<number>(1.0);
   const [simulatedElapsed, setSimulatedElapsed] = useState<number>(0);
   const [showTimerPopup, setShowTimerPopup] = useState<boolean>(true);
   const [speedPage, setSpeedPage] = useState<number>(1);
 
-  // Automatic Simulation target completion clock speeds
+  // Targets
   const [targetEndMode, setTargetEndMode] = useState<string>('manual');
-  const [customTargetSeconds, setCustomTargetSeconds] = useState<number>(300);
-  const [targetRealRemaining, setTargetRealRemaining] = useState<number | null>(null);
+  const [customTargetSeconds, setCustomTargetSeconds] = useState<number>(60);
+  const [sysNotice, setSysNotice] = useState<string | null>(null);
 
-  // Draggable position coordinates for the floating Timer & Speed popup
-  const [popupPos, setPopupPos] = useState({ x: 100, y: 50 }); // initial top / left coordinates
+  // Floating Speed/Clock HUD popup state
+  const [popupPos, setPopupPos] = useState({ x: 15, y: 79 });
   const [isDraggingPopup, setIsDraggingPopup] = useState(false);
   const dragPopupStart = useRef({ x: 0, y: 0 });
-  const popupOffsetStart = useRef({ x: 100, y: 50 });
+  const popupOffsetStart = useRef({ x: 15, y: 79 });
 
   useEffect(() => {
     if (!isDraggingPopup) return;
@@ -88,9 +106,8 @@ export default function SimulationPanel({
       const newX = popupOffsetStart.current.x + dx;
       const newY = popupOffsetStart.current.y + dy;
       
-      // Keep it reasonably inside the window borders
-      const boundedX = Math.max(10, Math.min(window.innerWidth - 360, newX));
-      const boundedY = Math.max(10, Math.min(window.innerHeight - 340, newY));
+      const boundedX = Math.max(10, Math.min(window.innerWidth - 300, newX));
+      const boundedY = Math.max(10, Math.min(window.innerHeight - 400, newY));
       
       setPopupPos({ x: boundedX, y: boundedY });
     };
@@ -115,7 +132,6 @@ export default function SimulationPanel({
     e.preventDefault();
   };
 
-  // Formats elapsed simulated clock seconds to hours, minutes, seconds and decimals
   const formatTime = (secs: number) => {
     const hours = Math.floor(secs / 3600);
     const minutes = Math.floor((secs % 3600) / 60);
@@ -130,25 +146,33 @@ export default function SimulationPanel({
     const s = Math.floor(totalSeconds % 60);
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
-  
-  // Localized Simulation queues and countdowns in an atomic single state
+
+  // Localized state containing stations and flying parts
   const [simState, setSimState] = useState<{
     simShops: SimulatedShopState[];
     flyingParts: FlyingPart[];
     processedCounts: { [shopId: number]: number };
-  }>({ simShops: [], flyingParts: [], processedCounts: {} });
+    partsReleasedCount: number;
+    intakeQueue: PartFlowItem[];
+    conveyorExitCount: number;
+  }>({ simShops: [], flyingParts: [], processedCounts: {}, partsReleasedCount: 0, intakeQueue: [], conveyorExitCount: 0 });
 
-  const { simShops, flyingParts, processedCounts } = simState;
+  const { simShops, flyingParts, processedCounts, partsReleasedCount, intakeQueue, conveyorExitCount } = simState;
 
-  const [avgCycleTime, setAvgCycleTime] = useState<number>(14.3);
-  
-  // Interactive Connector overlays
-  const [activeSourceId, setActiveSourceId] = useState<number | null>(null);
-  const [activeTargetId, setActiveTargetId] = useState<number | 'conveyor'>('conveyor');
-  const [showConnectorModal, setShowConnectorModal] = useState<boolean>(false);
+  const [totalCycleTime, setTotalCycleTime] = useState<number>(0);
+  const [avgPartProduced, setAvgPartProduced] = useState<string>("0.0");
+  const [draggedStationIdx, setDraggedStationIdx] = useState<number | null>(null);
+  const [draggedStationShopId, setDraggedStationShopId] = useState<number | null>(null);
+  const [bufferSelectedShopId, setBufferSelectedShopId] = useState<number | null>(null);
 
-  // Buffer Overrides (Synced from sidebar panel)
-  const [localBuffers, setLocalBuffers] = useState<{ [key: number]: number }>({});
+  useEffect(() => {
+    if (conveyorExitCount > 0) {
+      setAvgPartProduced((simulatedElapsed / conveyorExitCount).toFixed(1));
+    } else {
+      setAvgPartProduced("0.0");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conveyorExitCount]);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const isPanningRef = useRef<boolean>(false);
@@ -156,18 +180,7 @@ export default function SimulationPanel({
   const isDraggingCardRef = useRef<number | null>(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const cardStartRef = useRef({ x: 0, y: 0 });
-  const shopsRef = useRef(shops);
-  const zoomLevelRef = useRef(zoomLevel);
-  const lastStationsRef = useRef<{ [shopId: number]: number }>({});
   const partCounterRef = useRef<number>(1);
-
-  useEffect(() => {
-    shopsRef.current = shops;
-  }, [shops]);
-
-  useEffect(() => {
-    zoomLevelRef.current = zoomLevel;
-  }, [zoomLevel]);
 
   // Constants
   const shapes: Array<'pentagon' | 'heart' | 'square' | 'triangle' | 'diamond' | 'oval'> = [
@@ -176,17 +189,30 @@ export default function SimulationPanel({
   const colors = [
     'bg-[#4b8eff]', 'bg-[#b7c8e1]', 'bg-[#ffb595]', 'bg-[#adc6ff]', 'bg-[#eb9e34]', 'bg-[#ef6719]'
   ];
-  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
-  // Synchronize and reconcile simulated shops when layout parameters change
+  const generatePart = (): PartFlowItem => {
+    const shape = shapes[Math.floor(Math.random() * shapes.length)];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const idVal = partCounterRef.current++;
+    return { id: `Part #${idVal}`, shape, color };
+  };
+
+  // Reconcile or initialize stations inside the simulation state
   useEffect(() => {
     setSimState(prev => {
-      const hasExistingShops = prev.simShops.length > 0;
+      const inShop = shops.find(s => s.isInputShop);
+      const limit = inShop?.intakePartsCount ?? 15;
+      
+      let nextIntakeQueue = [...prev.intakeQueue];
+      // Initialize or reset queue when simulation is at 0 elapsed time and not already initialized (prevent wipe on Stop clock reset)
+      if (simulatedElapsed === 0 && prev.simShops.length === 0) {
+        // If the queue lacks the core parts or user manually updated intakePartsCount
+        if (prev.simShops.length === 0 || prev.intakeQueue.length === 0 || prev.partsReleasedCount !== limit) {
+          nextIntakeQueue = Array.from({ length: limit }).map(() => generatePart());
+        }
+      }
 
-      const initialized = shops.map((s, idx) => {
-        const existing = prev.simShops.find(ss => ss.id === s.id);
-
-        // Establish logical pipelines defaulted to numerical sequence, or derived from selected successor
+      const initialized = shops.map(s => {
         let connections: number[] = [];
         const matchShop = shops.find(target => target.name.trim().toLowerCase() === s.successor.trim().toLowerCase());
         if (matchShop) {
@@ -198,82 +224,504 @@ export default function SimulationPanel({
           }
         }
 
-        const prevStationCount = lastStationsRef.current[s.id];
-        const stationsChanged = prevStationCount === undefined || prevStationCount !== s.stations;
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const prefix = letters[(s.id - 1) % letters.length] || 'X';
 
-        if (existing) {
-          // Adjust parts to match the stations parameter of each shop only if stations attribute has changed
-          let reconciledParts = [...existing.parts];
-          if (stationsChanged) {
-            if (reconciledParts.length < s.stations) {
-              const diff = s.stations - reconciledParts.length;
-              for (let p = 0; p < diff; p++) {
-                reconciledParts.push(generatePart());
-              }
-            } else if (reconciledParts.length > s.stations) {
-              reconciledParts = reconciledParts.slice(0, s.stations);
-            }
+        const stationsDefList: StationTopology[] = s.stationsData && s.stationsData.length > 0 
+          ? s.stationsData 
+          : (Array.from({ length: s.stations || 3 }).map((_, stIdx) => ({
+              id: `${s.id}-${stIdx + 1}`,
+              name: `${prefix}${stIdx + 1}`,
+              partsCount: 0,
+              bufferSize: 5,
+              cycleTime: 15
+            })) as StationTopology[]);
+
+        const nextStations = stationsDefList.map((st, sIdx) => {
+          const existingShop = prev.simShops.find(ss => ss.id === s.id);
+          const existingSt = existingShop?.stations.find(ex => ex.id === st.id);
+
+          if (simulatedElapsed === 0 && prev.simShops.length === 0) {
+            return {
+              id: st.id,
+              name: st.name,
+              parts: [],
+              currentCountdown: st.cycleTime,
+              cycleTime: st.cycleTime,
+              bufferSize: st.bufferSize,
+              successor: st.successor
+            };
           }
 
-          return {
-            ...existing,
-            parts: reconciledParts,
-            connections
-          };
-        } else {
-          // Initialize exactly s.stations parts
-          const initialParts: PartFlowItem[] = [];
-          for (let p = 0; p < s.stations; p++) {
-            initialParts.push(generatePart());
+          if (existingSt) {
+            return {
+              ...existingSt,
+              cycleTime: st.cycleTime,
+              bufferSize: st.bufferSize,
+              successor: st.successor
+            };
+          } else {
+            return {
+              id: st.id,
+              name: st.name,
+              parts: [],
+              currentCountdown: st.cycleTime,
+              cycleTime: st.cycleTime,
+              bufferSize: st.bufferSize,
+              successor: st.successor
+            };
           }
+        });
 
-          return {
-            id: s.id,
-            currentCountdown: s.cycleTime,
-            parts: initialParts,
-            connections
-          };
-        }
+        return {
+          id: s.id,
+          name: s.name,
+          stations: nextStations,
+          connections
+        };
       });
 
-      // Filter out deleted shops
-      const validShopIds = new Set(shops.map(s => s.id));
-      const filteredSimShops = initialized.filter(ss => validShopIds.has(ss.id));
-
-      // Update the last known stations ref
-      shops.forEach(s => {
-        lastStationsRef.current[s.id] = s.stations;
-      });
+      const validIds = new Set(shops.map(s => s.id));
+      const filtered = initialized.filter(ss => validIds.has(ss.id));
 
       return {
         ...prev,
-        simShops: filteredSimShops
+        simShops: filtered,
+        intakeQueue: nextIntakeQueue,
+        partsReleasedCount: limit
+      };
+    });
+  }, [shops, simulatedElapsed]);
+
+  // Compute total cycle time dynamically based on selected station topologies
+  useEffect(() => {
+    let tot = 0;
+    shops.forEach(s => {
+      if (s.stationsData) {
+        s.stationsData.forEach(st => {
+          tot += st.cycleTime;
+        });
+      }
+    });
+    setTotalCycleTime(tot);
+  }, [shops]);
+
+  // Handle station drag and drop reordering inside a shop
+  const handleStationDragStart = (e: React.DragEvent, shopId: number, index: number) => {
+    e.stopPropagation();
+    setDraggedStationIdx(index);
+    setDraggedStationShopId(shopId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleStationDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+  };
+
+  const handleStationDrop = (e: React.DragEvent, shopId: number, targetIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (draggedStationIdx === null || draggedStationShopId !== shopId || draggedStationIdx === targetIndex) return;
+
+    const shop = shops.find(s => s.id === shopId);
+    if (!shop) return;
+
+    // Build the stations array from custom stationsData or default to generating them
+    const stationsList = shop.stationsData && shop.stationsData.length > 0 
+      ? [...shop.stationsData]
+      : (Array.from({ length: shop.stations || 3 }).map((_, stIdx) => {
+          const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+          const prefix = letters[(shop.id - 1) % letters.length] || 'X';
+          return {
+            id: `${shop.id}-${stIdx + 1}`,
+            name: `${prefix}${stIdx + 1}`,
+            partsCount: 0,
+            bufferSize: 5,
+            cycleTime: 15
+          };
+        }) as StationTopology[]);
+
+    const nextStationsData = [...stationsList];
+    const [draggedItem] = nextStationsData.splice(draggedStationIdx, 1);
+    nextStationsData.splice(targetIndex, 0, draggedItem);
+
+    // Update local simShops too to preserve currently simulated parts in their correct positions relative to order!
+    setSimState(prev => {
+      const nextSimShops = prev.simShops.map(ss => {
+        if (ss.id === shopId) {
+          const ssStations = [...ss.stations];
+          const [draggedSt] = ssStations.splice(draggedStationIdx, 1);
+          ssStations.splice(targetIndex, 0, draggedSt);
+          return {
+            ...ss,
+            stations: ssStations
+          };
+        }
+        return ss;
+      });
+      return {
+        ...prev,
+        simShops: nextSimShops
       };
     });
 
-    // Populate buffers if they haven't been initialized yet
-    setLocalBuffers(prev => {
-      const nextBuf = { ...prev };
-      shops.forEach(s => {
-        if (nextBuf[s.id] === undefined) {
-          nextBuf[s.id] = s.bufferSize;
-        }
-      });
-      return nextBuf;
-    });
-  }, [shops]);
-
-  // Generate random piece identifier
-  const generatePart = (): PartFlowItem => {
-    const shape = shapes[Math.floor(Math.random() * shapes.length)];
-    const color = colors[Math.floor(Math.random() * colors.length)];
-    const idVal = partCounterRef.current++;
-    return { id: `Part #${idVal}`, shape, color };
+    onUpdateShop(shopId, { stationsData: nextStationsData });
+    setSysNotice(`Reordered stations in ${shop.name}.`);
+    setTimeout(() => setSysNotice(null), 3000);
   };
 
-  // Render miniature geometric structures based on clip-paths
+  const handleStationDragEnd = () => {
+    setDraggedStationIdx(null);
+    setDraggedStationShopId(null);
+  };
+
+  // Handle addition of a part to the labeled Entrance shop (isInputShop: true)
+  const handleAddPartToInShop = () => {
+    const inShop = shops.find(s => s.isInputShop);
+    if (!inShop) {
+      setSysNotice('Error: No input shop designated. Mark a shop [IN] first.');
+      setTimeout(() => setSysNotice(null), 4000);
+      return;
+    }
+
+    setSimState(prev => {
+      const newPart = generatePart();
+      const updatedQueue = [...prev.intakeQueue, newPart];
+      
+      return {
+        ...prev,
+        intakeQueue: updatedQueue
+      };
+    });
+
+    setSysNotice(`Added 1 part to the intake conduit queue.`);
+    setTimeout(() => setSysNotice(null), 3000);
+  };
+
+  // Clear simulated part entities and reset counts
+  const handleClearAllSimData = () => {
+    setSimState({
+      simShops: [],
+      flyingParts: [],
+      processedCounts: {},
+      partsReleasedCount: 0,
+      intakeQueue: [],
+      conveyorExitCount: 0
+    });
+    setSimulatedElapsed(0);
+    setSysNotice(null);
+  };
+
+  // --- Processing Cycle Loop: Ticks every 100ms ---
+  useEffect(() => {
+    if (!isSimRunning) return;
+
+    const interval = setInterval(() => {
+      // Delta elapsed time tracking
+      const deltaSec = 0.1 * simSpeed;
+      
+      const targetSecArr: { [key: string]: number } = {
+        '30s': 30, '1m': 60, '1.5m': 90, '2m': 120, '5m': 300, '10m': 600, '1h': 3600
+      };
+      const limitSec = targetEndMode === 'custom' ? customTargetSeconds : targetSecArr[targetEndMode];
+
+      setSimulatedElapsed(prevElap => {
+        const nextElap = prevElap + deltaSec;
+        if (limitSec !== undefined && nextElap >= limitSec) {
+          setIsSimRunning(false);
+          return limitSec;
+        }
+        return nextElap;
+      });
+
+      setSimState(prev => {
+        // Deep clone the shop stations to prevent references problems
+        let nextSimShops: SimulatedShopState[] = prev.simShops.map(ss => ({
+          ...ss,
+          stations: ss.stations.map(st => ({
+            ...st,
+            parts: st.parts.map(p => ({ ...p }))
+          })),
+          connections: [...ss.connections]
+        }));
+
+        let nextIntakeQueue = [...prev.intakeQueue];
+        const newFlyingParts: FlyingPart[] = [];
+        const nextProcessed = { ...prev.processedCounts };
+
+        // Auto-feed waiting intake parts into first station buffer of the input shop
+        const inShopSim = nextSimShops.find(ss => {
+          const orig = shops.find(o => o.id === ss.id);
+          return orig?.isInputShop;
+        });
+        if (inShopSim && nextIntakeQueue.length > 0) {
+          const firstSt = inShopSim.stations[0];
+          while (firstSt && firstSt.parts.length < firstSt.bufferSize + 1 && nextIntakeQueue.length > 0) {
+            const nextPart = nextIntakeQueue.shift();
+            if (nextPart) {
+              firstSt.parts.push(nextPart);
+            }
+          }
+        }
+
+        // Process sequentially
+        nextSimShops = nextSimShops.map(ss => {
+          const original = shops.find(o => o.id === ss.id);
+          if (!original) return ss;
+
+          const lastStationIdx = ss.stations.length - 1;
+
+          // Sequential Pipeline processing from downstream stations up to upstream (reverse index)
+          for (let j = lastStationIdx; j >= 0; j--) {
+            const st = ss.stations[j];
+            const hasParts = st.parts.length > 0;
+
+            if (hasParts) {
+              const nextCount = st.currentCountdown - 0.1 * simSpeed;
+
+              if (nextCount <= 0) {
+                // Determine target successor string
+                const targetSuccessor = st.successor || (j === lastStationIdx ? "exit" : ss.stations[j + 1]?.id || "exit");
+
+                if (targetSuccessor !== "exit") {
+                  // Move to internal succeeding station in the same shop
+                  const nextSt = ss.stations.find(station => station.id === targetSuccessor);
+                  if (nextSt) {
+                    if (nextSt.parts.length < nextSt.bufferSize + 1) {
+                      const finishedPart = st.parts.shift();
+                      if (finishedPart) {
+                        nextSt.parts.push(finishedPart);
+                      }
+                      st.currentCountdown = st.cycleTime;
+                    } else {
+                      // Blocked due to backpressure (countdown capped at 0)
+                      st.currentCountdown = 0;
+                    }
+                  } else {
+                    // Fallback if target station cannot be located: process out normally
+                    st.parts.shift();
+                    st.currentCountdown = st.cycleTime;
+                  }
+                } else {
+                  // Exits this shop. Determine next destination.
+                  if (original.isOutputShop || ss.connections.length === 0) {
+                    // Exits the plant onto final Outbound production conveyor belt
+                    const finishedPart = st.parts.shift();
+                    if (finishedPart) {
+                      nextProcessed[ss.id] = (nextProcessed[ss.id] || 0) + 1;
+
+                      const startX = original.posX + getShopWidthPx(original) / 2;
+                      const startY = original.posY + 30;
+
+                      newFlyingParts.push({
+                        ...finishedPart,
+                        fromId: ss.id,
+                        toId: 'conveyor',
+                        progress: 0,
+                        startX,
+                        startY,
+                        endX: startX,
+                        endY: 65
+                      });
+                    }
+                    st.currentCountdown = st.cycleTime;
+                  } else {
+                    // Transition to succeeding shop's first station
+                    const targetId = ss.connections[0];
+                    const targetShop = nextSimShops.find(cs => cs.id === targetId);
+                    const targetOrig = shops.find(t => t.id === targetId);
+
+                    if (targetShop && targetOrig) {
+                      const firstStTarget = targetShop.stations[0];
+                      if (firstStTarget && firstStTarget.parts.length < firstStTarget.bufferSize + 1) {
+                        const finishedPart = st.parts.shift();
+                        if (finishedPart) {
+                          nextProcessed[ss.id] = (nextProcessed[ss.id] || 0) + 1;
+
+                          const startX = original.posX + getShopWidthPx(original) / 2;
+                          const startY = original.posY + getShopHeightPx(original) - 20;
+                          const endX = targetOrig.posX + getShopWidthPx(targetOrig) / 2;
+                          const endY = targetOrig.posY + 30;
+
+                          newFlyingParts.push({
+                            ...finishedPart,
+                            fromId: ss.id,
+                            toId: targetId,
+                            progress: 0,
+                            startX,
+                            startY,
+                            endX,
+                            endY
+                          });
+                        }
+                        st.currentCountdown = st.cycleTime;
+                      } else {
+                        // Successor initial station queue is full! Backpressure blockade
+                        st.currentCountdown = 0;
+                      }
+                    } else {
+                      // Fallback normal complete
+                      const finishedPart = st.parts.shift();
+                      if (finishedPart) {
+                        nextProcessed[ss.id] = (nextProcessed[ss.id] || 0) + 1;
+                      }
+                      st.currentCountdown = st.cycleTime;
+                    }
+                  }
+                }
+              } else {
+                st.currentCountdown = nextCount;
+              }
+            } else {
+              st.currentCountdown = st.cycleTime;
+            }
+          }
+
+          return ss;
+        });
+
+        // Advance progress of the flying parts
+        const activeFlyingParts: FlyingPart[] = [];
+        let newConveyorExits = 0;
+        prev.flyingParts.forEach(fp => {
+          const nextProg = fp.progress + 6 * simSpeed;
+          if (nextProg >= 100) {
+            // Arrived! Add to targeted first station queue if space exists
+            if (fp.toId !== 'conveyor') {
+              const targetShop = nextSimShops.find(cs => cs.id === fp.toId);
+              if (targetShop) {
+                const firstStTarget = targetShop.stations[0];
+                if (firstStTarget && firstStTarget.parts.length < firstStTarget.bufferSize + 1) {
+                  firstStTarget.parts.push({ id: fp.id, shape: fp.shape, color: fp.color });
+                }
+              }
+            } else {
+              newConveyorExits++;
+            }
+          } else {
+            activeFlyingParts.push({
+              ...fp,
+              progress: nextProg
+            });
+          }
+        });
+
+        // Check if all parts are finished
+        const systemHasPartsActive = prev.intakeQueue.length > 0 || 
+                                     prev.flyingParts.length > 0 || 
+                                     prev.simShops.some(ss => ss.stations.some(st => st.parts.length > 0));
+        const totalPartsLeft = nextIntakeQueue.length + 
+                               activeFlyingParts.length + 
+                               newFlyingParts.length + 
+                               nextSimShops.reduce((sum, ss) => sum + ss.stations.reduce((sumSt, st) => sumSt + st.parts.length, 0), 0);
+
+        if (systemHasPartsActive && totalPartsLeft === 0) {
+          setTimeout(() => setIsSimRunning(false), 0);
+        }
+
+        return {
+          ...prev,
+          simShops: nextSimShops,
+          flyingParts: [...activeFlyingParts, ...newFlyingParts],
+          processedCounts: nextProcessed,
+          intakeQueue: nextIntakeQueue,
+          conveyorExitCount: prev.conveyorExitCount + newConveyorExits
+        };
+      });
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [isSimRunning, simSpeed, targetEndMode, customTargetSeconds, shops]);
+
+  // Sidebar specific station buffer modification updater with persistence
+  const handleModifyStationBuffer = (shopId: number, stationId: string, amount: number) => {
+    // 1. Update live simulation state immediately
+    setSimState(prev => {
+      const nextSimShops = prev.simShops.map(ss => {
+        if (ss.id === shopId) {
+          return {
+            ...ss,
+            stations: ss.stations.map(st => {
+              if (st.id === stationId) {
+                return {
+                  ...st,
+                  bufferSize: Math.max(1, Math.min(100, st.bufferSize + amount))
+                };
+              }
+              return st;
+            })
+          };
+        }
+        return ss;
+      });
+      return {
+        ...prev,
+        simShops: nextSimShops
+      };
+    });
+
+    // 2. Persist to parent config so resets/layout changes preserve edited capacities
+    const curShop = shops.find(s => s.id === shopId);
+    if (curShop && curShop.stationsData) {
+      const nextStationsData = curShop.stationsData.map(st => {
+        if (st.id === stationId) {
+          return {
+            ...st,
+            bufferSize: Math.max(1, Math.min(100, st.bufferSize + amount))
+          };
+        }
+        return st;
+      });
+      onUpdateShop(shopId, { stationsData: nextStationsData });
+    }
+  };
+
+  // Canvas Drag-to-Pan Handlers (Restricted to keep top conveyor bounded)
+  const handleCanvasMouseDown = (e: React.MouseEvent) => {
+    // Exclude button clicks and interactive controls
+    if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('input') || (e.target as HTMLElement).closest('select')) return;
+    
+    isPanningRef.current = true;
+    panStartRef.current = { x: e.clientX - panX, y: e.clientY - panY };
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent) => {
+    if (isDraggingCardRef.current !== null) {
+      const id = isDraggingCardRef.current;
+      const dx = (e.clientX - dragStartRef.current.x) / zoomLevel;
+      const dy = (e.clientY - dragStartRef.current.y) / zoomLevel;
+      
+      const nextX = Math.round(cardStartRef.current.x + dx);
+      const nextY = Math.max(85, Math.round(cardStartRef.current.y + dy)); // prevent sliding above top conveyor limit
+      onUpdateShop(id, { posX: nextX, posY: nextY });
+      return;
+    }
+
+    if (!isPanningRef.current) return;
+    
+    const calculatedY = e.clientY - panStartRef.current.y;
+    setPanX(e.clientX - panStartRef.current.x);
+    // Strict requirement: User can NEVER scroll above top production conveyor belt
+    setPanY(Math.min(15, calculatedY));
+  };
+
+  const handleCanvasMouseUp = () => {
+    isPanningRef.current = false;
+    isDraggingCardRef.current = null;
+  };
+
+  const handleCardDragStart = (e: React.MouseEvent, id: number, currentX: number, currentY: number) => {
+    e.stopPropagation();
+    isDraggingCardRef.current = id;
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    cardStartRef.current = { x: currentX, y: currentY };
+  };
+
+  const handleZoomIn = () => setZoomLevel(prev => Math.min(1.8, prev + 0.05));
+  const handleZoomOut = () => setZoomLevel(prev => Math.max(0.65, prev - 0.05));
+
   const renderClipShape = (shape: string, color: string) => {
-    const commonClasses = "w-5 h-5 flex items-center justify-center shrink-0 shadow-md";
+    const commonClasses = "w-5 h-5 flex items-center justify-center shrink-0 shadow-sm border border-black/10 transition-transform scale-95";
     switch (shape) {
       case 'pentagon':
         return (
@@ -286,10 +734,11 @@ export default function SimulationPanel({
         return (
           <div 
             className={`${commonClasses} ${color}`}
-            style={{ clipPath: 'polygon(50% 15%, 80% 0%, 100% 30%, 50% 90%, 0% 30%, 20% 0%)' }}
-            // Fallback for extreme hearts
+            style={{ clipPath: 'path("M12,5 C10.2,2 6,2.4 4,5 C1.5,8.2 4.4,13 12,19.2 C19.6,13 22.5,8.2 20,5 C18,2.4 13.8,2 12,5 Z")' }}
           />
         );
+      case 'square':
+        return <div className={`${commonClasses} ${color} rounded-sm`} />;
       case 'triangle':
         return (
           <div 
@@ -305,419 +754,10 @@ export default function SimulationPanel({
           />
         );
       case 'oval':
-        return (
-          <div className={`${commonClasses} ${color} rounded-full`} />
-        );
-      default: // square
-        return (
-          <div className={`${commonClasses} ${color} rounded-sm`} />
-        );
+        return <div className={`${commonClasses} ${color} rounded-full`} />;
+      default:
+        return <div className={`${commonClasses} bg-primary`} />;
     }
-  };
-
-  // --- Zoom Controllers ---
-  const handleZoomIn = () => setZoomLevel(prev => Math.min(2.0, prev + 0.1));
-  const handleZoomOut = () => setZoomLevel(prev => Math.max(0.5, prev - 0.1));
-  const handleZoomReset = () => {
-    setZoomLevel(1);
-    setPanX(0);
-    setPanY(0);
-  };
-
-  // --- Pan Logic ---
-  const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    if (isDraggingCardRef.current !== null) return;
-    
-    // Check if target is background or canvas
-    const target = e.target as HTMLElement;
-    if (target.id === 'main-canvas' || target.id === 'viewport-grid' || target.id === 'svg-canvas') {
-      isPanningRef.current = true;
-      panStartRef.current = { x: e.clientX - panX, y: e.clientY - panY };
-    }
-  };
-
-  const handleGlobalMouseMove = (e: MouseEvent) => {
-    if (isPanningRef.current) {
-      setPanX(e.clientX - panStartRef.current.x);
-      setPanY(Math.min(0, e.clientY - panStartRef.current.y));
-    } else if (isDraggingCardRef.current !== null) {
-      const activeCardId = isDraggingCardRef.current;
-      // Calculate coordinate changes relative to active zoom level from initial click down
-      const dx = (e.clientX - dragStartRef.current.x) / zoomLevelRef.current;
-      const dy = (e.clientY - dragStartRef.current.y) / zoomLevelRef.current;
-      
-      onUpdateShop(activeCardId, {
-        posX: Math.max(0, cardStartRef.current.x + dx),
-        posY: Math.max(80, cardStartRef.current.y + dy)
-      });
-    }
-  };
-
-  const handleGlobalMouseUp = () => {
-    isPanningRef.current = false;
-    isDraggingCardRef.current = null;
-  };
-
-  useEffect(() => {
-    window.addEventListener('mousemove', handleGlobalMouseMove);
-    window.addEventListener('mouseup', handleGlobalMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleGlobalMouseMove);
-      window.removeEventListener('mouseup', handleGlobalMouseUp);
-    };
-  }, []);
-
-  // --- Draggable Card Trigger ---
-  const handleCardHeaderMouseDown = (e: React.MouseEvent, id: number) => {
-    e.stopPropagation();
-    isDraggingCardRef.current = id;
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
-    
-    const shop = shopsRef.current.find(s => s.id === id);
-    if (shop) {
-      cardStartRef.current = { x: shop.posX, y: shop.posY };
-    }
-  };
-
-  const getSuccessorPathTime = (shopId: number): number => {
-    let totalTime = 0;
-    let currentId = shopId;
-    const visited = new Set<number>();
-    
-    while (currentId && !visited.has(currentId)) {
-      visited.add(currentId);
-      const currentShop = shops.find(s => s.id === currentId);
-      if (!currentShop) break;
-      
-      // Look for next shop in routing
-      const matchShop = shops.find(target => target.name.trim().toLowerCase() === currentShop.successor.trim().toLowerCase());
-      if (matchShop) {
-        currentId = matchShop.id;
-        // Each transition takes virtual transit flight time (approx 1.67 seconds) + cycle time
-        totalTime += matchShop.cycleTime + 1.67;
-      } else {
-        const match = currentShop.successor.match(/\d+/);
-        if (match) {
-          const nextTargetId = parseInt(match[0]);
-          const nextShop = shops.find(target => target.id === nextTargetId);
-          if (nextShop) {
-            currentId = nextTargetId;
-            totalTime += nextShop.cycleTime + 1.67;
-          } else {
-            break;
-          }
-        } else {
-          break;
-        }
-      }
-    }
-    return totalTime;
-  };
-
-  const calculateRemainingVirtualTime = (simShopsList: SimulatedShopState[], flyingPartsList: FlyingPart[]): number => {
-    let maxTime = 0;
-    
-    // Check shop states workload
-    simShopsList.forEach(ss => {
-      const original = shops.find(o => o.id === ss.id);
-      if (!original) return;
-      
-      const nParts = ss.parts.length;
-      if (nParts === 0) return;
-      
-      const downstreamTime = getSuccessorPathTime(ss.id);
-      // Formula: the active countdown + (N-1) * cycleTime + downstream time and flight times to completely exit
-      const shopTime = ss.currentCountdown + Math.max(0, nParts - 1) * original.cycleTime + downstreamTime;
-      if (shopTime > maxTime) {
-        maxTime = shopTime;
-      }
-    });
-    
-    // Check active flying parts workload
-    flyingPartsList.forEach(fp => {
-      let downstreamTime = 0;
-      if (fp.toId !== 'conveyor') {
-        const targetShop = shops.find(s => s.id === fp.toId);
-        if (targetShop) {
-          downstreamTime = targetShop.cycleTime + getSuccessorPathTime(targetShop.id);
-        }
-      }
-      
-      const remainingProgressFrac = Math.max(0, 100 - fp.progress) / 100;
-      const travelTime = remainingProgressFrac * 1.67; // 100 progress takes exactly 1.67 seconds in virtual time
-      const partTime = travelTime + downstreamTime;
-      if (partTime > maxTime) {
-        maxTime = partTime;
-      }
-    });
-    
-    return maxTime;
-  };
-
-  // Automatic Simulation Target Timer synchronizer (keeps the target countdown but does not alter speed)
-  useEffect(() => {
-    if (targetEndMode === 'manual') {
-      setTargetRealRemaining(null);
-    } else {
-      let limitSecs = 30;
-      if (targetEndMode === '30s') limitSecs = 30;
-      else if (targetEndMode === '1m') limitSecs = 60;
-      else if (targetEndMode === '2m') limitSecs = 120;
-      else if (targetEndMode === '5m') limitSecs = 300;
-      else if (targetEndMode === '10m') limitSecs = 600;
-      else if (targetEndMode === '1h') limitSecs = 3600;
-      else if (targetEndMode === 'custom') limitSecs = customTargetSeconds;
-
-      setTargetRealRemaining(limitSecs);
-    }
-  }, [targetEndMode, customTargetSeconds]);
-
-  // --- Simulated Cycle Updates (100ms interval) ---
-  useEffect(() => {
-    if (!isSimRunning) return;
-
-    const interval = setInterval(() => {
-      let currentSpeed = simSpeed;
-
-      // Update remaining real-time target countdown timer
-      if (targetEndMode !== 'manual') {
-        setTargetRealRemaining(prevRem => {
-          if (prevRem === null || prevRem <= 0) return 0;
-          const nextRem = prevRem - 0.1;
-          if (nextRem <= 0) {
-            // Stop simulation when target time is reached
-            setIsSimRunning(false);
-            return 0;
-          }
-          return nextRem;
-        });
-      }
-
-      setSimState(prev => {
-        // Deep clone to prevent direct state mutation issues and duplicate parts multiplication
-        let nextSimShops: SimulatedShopState[] = prev.simShops.map(ss => ({
-          ...ss,
-          parts: ss.parts.map(p => ({ ...p })),
-          connections: [...ss.connections]
-        }));
-
-        // Apply updated countdown ticks with currentSpeed
-        nextSimShops = nextSimShops.map(ss => {
-          const original = shops.find(o => o.id === ss.id);
-          if (!original) return ss;
-
-          const hasJobsReady = ss.parts.length > 0;
-
-          if (hasJobsReady) {
-            const nextCountdown = ss.currentCountdown - 0.1 * currentSpeed;
-            if (nextCountdown <= 0) {
-              return {
-                ...ss,
-                currentCountdown: original.cycleTime,
-                _cycleCompleted: true
-              };
-            }
-            return {
-              ...ss,
-              currentCountdown: nextCountdown
-            };
-          } else {
-            // Cycle time doesn't run down if nothing is present in the shop
-            return {
-              ...ss,
-              currentCountdown: original.cycleTime
-            };
-          }
-        });
-
-        // Collect new flying parts from completed cycles inside the SAME transition
-        const newFlyingParts: FlyingPart[] = [];
-        const nextProcessedCounts = { ...prev.processedCounts };
-        nextSimShops = nextSimShops.map(ss => {
-          if ((ss as any)._cycleCompleted) {
-            delete (ss as any)._cycleCompleted;
-
-            // Increment processed count for this shop
-            nextProcessedCounts[ss.id] = (nextProcessedCounts[ss.id] || 0) + 1;
-
-            const original = shops.find(o => o.id === ss.id);
-            if (!original) return ss;
-
-            // Atomically shift part from the shop's queue (pure operation)
-            const updatedParts = [...ss.parts];
-            const partToTransit = updatedParts.shift() || null;
-            ss.parts = updatedParts;
-
-            if (partToTransit) {
-              const startX = original.posX + getShopWidthPx(original) / 2;
-              const startY = original.posY + getShopHeightPx(original) / 2;
-
-              if (ss.connections.length > 0) {
-                const targetId = ss.connections[0];
-                const targetShop = shops.find(t => t.id === targetId);
-                if (targetShop) {
-                  const endX = targetShop.posX + getShopWidthPx(targetShop) / 2;
-                  const endY = targetShop.posY + getShopHeightPx(targetShop) / 2;
-
-                  newFlyingParts.push({
-                    ...partToTransit,
-                    fromId: ss.id,
-                    toId: targetId,
-                    progress: 0,
-                    startX,
-                    startY,
-                    endX,
-                    endY
-                  });
-                }
-              } else if (ss.id === finalShopId) {
-                newFlyingParts.push({
-                  ...partToTransit,
-                  fromId: ss.id,
-                  toId: 'conveyor',
-                  progress: 0,
-                  startX,
-                  startY,
-                  endX: startX, // aligned with the shop center
-                  endY: 68 // directly below the final production line
-                });
-              }
-            }
-          }
-          return ss;
-        });
-
-        // 2. Increment active flying parts transit pathways and deliver atomically with currentSpeed
-        const remainingFlyingParts: FlyingPart[] = [];
-        prev.flyingParts.forEach(fp => {
-          const nextProgress = fp.progress + 6 * currentSpeed;
-          if (nextProgress >= 100) {
-            if (fp.toId !== 'conveyor') {
-              const targetShop = nextSimShops.find(cs => cs.id === fp.toId);
-              if (targetShop) {
-                const limit = localBuffers[fp.toId as number] !== undefined ? localBuffers[fp.toId as number] : (shops.find(s => s.id === fp.toId)?.bufferSize || 20);
-                if (Math.max(0, targetShop.parts.length - 1) < limit) {
-                  targetShop.parts.push({ id: fp.id, shape: fp.shape, color: fp.color });
-                }
-              }
-            }
-          } else {
-            remainingFlyingParts.push({
-              ...fp,
-              progress: nextProgress
-            });
-          }
-        });
-
-        return {
-          simShops: nextSimShops,
-          flyingParts: [...remainingFlyingParts, ...newFlyingParts],
-          processedCounts: nextProcessedCounts
-        };
-      });
-
-      // Increment elapsed simulation time according to speed rate
-      setSimulatedElapsed(prev => prev + 0.1 * currentSpeed);
-
-      // Update telemetry cycle metrics
-      const averageTime = shops.reduce((acc, curr) => acc + curr.cycleTime, 0) / shops.length;
-      setAvgCycleTime(parseFloat(averageTime.toFixed(1)));
-
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [isSimRunning, shops, localBuffers, simSpeed, targetEndMode, targetRealRemaining]);
-
-  // Auto-stop simulation when all stations/parts are fully processed
-  useEffect(() => {
-    if (!isSimRunning) return;
-    const hasShops = simShops.length > 0;
-    const allCompleted = hasShops && simShops.every(ss => ss.parts.length === 0) && flyingParts.length === 0;
-    if (allCompleted) {
-      setIsSimRunning(false);
-    }
-  }, [simShops, flyingParts, isSimRunning]);
-
-  // --- Inline Flow Connection creator ---
-  const handleAddPathwayClick = (e: React.MouseEvent, sourceId: number) => {
-    e.stopPropagation();
-    setActiveSourceId(sourceId);
-    
-    // Choose sensible destination candidates that are after the source shop
-    const options = shops.filter(s => s.id > sourceId);
-    if (options.length > 0) {
-      setActiveTargetId(options[0].id);
-    } else {
-      setActiveTargetId('conveyor');
-    }
-    
-    setShowConnectorModal(true);
-  };
-
-  const handleConfirmPathway = () => {
-    if (activeSourceId === null) return;
-    
-    setSimState(prev => {
-      const nextSimShops = prev.simShops.map(cs => {
-        if (cs.id === activeSourceId) {
-          // Clear connection if targeting conveyor, otherwise set successor
-          const freshCons = activeTargetId === 'conveyor' ? [] : [activeTargetId as number];
-          return {
-            ...cs,
-            connections: freshCons // Single target pipeline model
-          };
-        }
-        return cs;
-      });
-      return { ...prev, simShops: nextSimShops };
-    });
-
-    setShowConnectorModal(false);
-  };
-
-  const handleDisconnectLine = (fromId: number, toId: number) => {
-    setSimState(prev => {
-      const nextSimShops = prev.simShops.map(cs => {
-        if (cs.id === fromId) {
-          return {
-            ...cs,
-            connections: cs.connections.filter(c => c !== toId)
-          };
-        }
-        return cs;
-      });
-      return { ...prev, simShops: nextSimShops };
-    });
-  };
-
-  // Helper to manually inject parts into any shop
-  const handleAddPartToShop = (shopId: number) => {
-    setSimState(prev => {
-      const nextSimShops = prev.simShops.map(cs => {
-        if (cs.id === shopId) {
-          const limit = localBuffers[cs.id] !== undefined ? localBuffers[cs.id] : (shops.find(s => s.id === cs.id)?.bufferSize || 20);
-          if (Math.max(0, cs.parts.length - 1) < limit) {
-            return {
-              ...cs,
-              parts: [...cs.parts, generatePart()]
-            };
-          }
-        }
-        return cs;
-      });
-      return { ...prev, simShops: nextSimShops };
-    });
-  };
-
-  // --- Sidebar live buffer modifier ---
-  const handleModifyBuffer = (shopId: number, amount: number) => {
-    setLocalBuffers(prev => {
-      const current = prev[shopId] !== undefined ? prev[shopId] : 20;
-      return {
-        ...prev,
-        [shopId]: Math.max(1, Math.min(99, current + amount))
-      };
-    });
   };
 
   return (
@@ -725,13 +765,13 @@ export default function SimulationPanel({
       {/* Sidebar navigation and buffer modifier */}
       <aside className="w-64 border-r border-outline-variant flex flex-col bg-surface-container-low p-4 gap-6 shrink-0 justify-between select-none z-10">
         <div>
-          <p className="font-mono text-[9px] uppercase tracking-widest text-on-surface-variant opacity-70 mb-3">System Controls</p>
+          <p className="font-mono text-[9px] uppercase tracking-widest text-[#8e909a] mb-3 font-bold text-left">System Controls</p>
           <ul className="space-y-1">
             <li>
               <button 
                 type="button"
                 onClick={() => onNavigate('configuration')}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer text-left font-mono text-[11px] uppercase tracking-widest"
+                className="w-full flex items-center gap-3 px-4 py-2.5 rounded text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer text-left font-mono text-[11px] uppercase tracking-wider"
               >
                 <Sliders className="w-4 h-4 text-on-surface-variant" />
                 <span>Configuration</span>
@@ -741,447 +781,111 @@ export default function SimulationPanel({
               <button 
                 type="button"
                 onClick={() => onNavigate('layout')}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer text-left font-mono text-[11px] uppercase tracking-widest"
+                className="w-full flex items-center gap-3 px-4 py-2.5 rounded text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer text-left font-mono text-[11px] uppercase tracking-wider"
               >
                 <LayoutGrid className="w-4 h-4 text-on-surface-variant" />
                 <span>Layout</span>
               </button>
             </li>
             <li>
-              <div className="w-full flex items-center gap-3 px-4 py-3 bg-surface-container-highest text-primary border-l-2 border-primary rounded font-mono text-[11px] uppercase tracking-widest font-bold">
-                <Play className="w-4 h-4 text-primary" />
+              <button 
+                type="button"
+                onClick={() => onNavigate('shop-layout')}
+                className="w-full flex items-center gap-3 px-4 py-2.5 rounded text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer text-left font-mono text-[11px] uppercase tracking-wider"
+              >
+                <Settings className="w-4 h-4 text-on-surface-variant" />
+                <span>Shop Layout</span>
+              </button>
+            </li>
+            <li>
+              <div className="w-full flex items-center gap-3 px-4 py-2.5 bg-[#1b2640] text-primary border-l-2 border-primary rounded font-mono text-[11px] uppercase tracking-wider font-bold">
+                <Play className="w-4 h-4 text-primary animate-pulse" />
                 <span>Simulation</span>
               </div>
             </li>
           </ul>
 
-          {/* Buffer Capacity Syncer */}
-          <div className="mt-8 border-t border-outline-variant/30 pt-6">
-            <p className="font-mono text-[9px] uppercase tracking-widest text-[#8e909a] mb-4 font-bold">Buffer Configuration</p>
-            <div className="space-y-4">
-              {shops.map(shop => {
-                const currentBuf = localBuffers[shop.id] !== undefined ? localBuffers[shop.id] : shop.bufferSize;
-                return (
-                  <div key={shop.id} className="flex items-center justify-between px-2">
-                    <label className="text-[11px] font-mono uppercase font-bold text-on-surface-variant opacity-80">{shop.name}</label>
-                    <div className="flex items-center bg-surface-container-highest rounded border border-outline-variant overflow-hidden">
-                      <button 
-                        type="button"
-                        onClick={() => handleModifyBuffer(shop.id, -1)}
-                        className="px-2.5 py-1 hover:bg-[#adc6ff]/20 text-[#adc6ff] border-r border-outline-variant cursor-pointer"
-                      >
-                        <Minus className="w-3 h-3" />
-                      </button>
-                      <input 
-                        type="text" 
-                        value={currentBuf} 
-                        readOnly
-                        className="w-10 bg-transparent border-none text-center font-mono text-[11px] text-primary focus:ring-0 p-0" 
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => handleModifyBuffer(shop.id, 1)}
-                        className="px-2.5 py-1 hover:bg-[#adc6ff]/20 text-[#adc6ff] border-l border-outline-variant cursor-pointer"
-                      >
-                        <Plus className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+          {/* Add Part Button */}
+          <div className="mt-5 border-t border-outline-variant/30 pt-5">
+            <div className="flex justify-between items-center mb-2.5 px-1 font-mono text-[10px]">
+              <span className="text-[#8e909a] uppercase tracking-wider">Conduit Queue:</span>
+              <span className="text-emerald-400 font-bold">
+                {intakeQueue.length} parts waiting
+              </span>
             </div>
+
+            <button 
+              type="button"
+              onClick={handleAddPartToInShop}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded font-mono font-bold text-xs uppercase bg-emerald-500 hover:bg-emerald-400 text-slate-900 transition-all shadow-md active:scale-95 cursor-pointer select-none"
+            >
+              <Plus className="w-4 h-4 text-slate-900" />
+              <span>Add Part</span>
+            </button>
+            
+            {sysNotice && (
+              <p className="mt-2.5 text-[10px] font-mono text-amber-300 bg-amber-500/10 border border-amber-500/20 p-2 rounded leading-relaxed text-center animate-pulse">
+                {sysNotice}
+              </p>
+            )}
           </div>
+
         </div>
 
-        {/* Sidebar Footer Indicators */}
-        <div className="pt-4 border-t border-outline-variant/30 px-2">
-          <span className="font-mono text-[9px] uppercase tracking-wider text-on-surface-variant opacity-50 block mb-1">System Pipeline</span>
+        {/* System Integrity display inside sidebar footer */}
+        <div className="pt-4 border-t border-outline-variant/30 text-left">
+          <span className="font-mono text-[8px] uppercase tracking-wider text-on-surface-variant opacity-60 block mb-0.5">Line Integrator State</span>
           <div className="flex items-center gap-2">
-            <div className={`w-2.5 h-2.5 rounded-full ${isSimRunning ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-            <span className="text-xs text-on-surface font-mono uppercase tracking-tight">{isSimRunning ? 'Clock Synchronized' : 'Clock Suspended'}</span>
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-xs text-[#adc6ff] font-bold font-mono">FLOW ACTIVE</span>
           </div>
         </div>
       </aside>
 
-      {/* Vertical workspace framework anchoring footer to the screen bottom */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
-        {/* Main Draggable Map Canvas Grid */}
-        <main 
-          ref={canvasRef}
-        id="main-canvas"
-        className={`flex-1 relative overflow-hidden bg-[#0b1326] bg-grid-dots transition-all ${isPanningRef.current ? 'cursor-grabbing' : 'cursor-grab'}`}
-        onMouseDown={handleCanvasMouseDown}
-      >
-        {/* Holographic Canvas HUD overlays */}
-        <div 
-          id="viewport-grid"
-          className="absolute origin-top-left"
-          style={{
-            width: '5000px',
-            height: '4000px',
-            transform: `translate(${panX}px, ${panY}px) scale(${zoomLevel})`,
-            pointerEvents: 'auto'
-          }}
-        >
-          {/* SVG Vector Connections Cable Overlay */}
-          <svg 
-            id="svg-canvas"
-            className="absolute top-0 left-0 w-full h-full pointer-events-none"
-            style={{ zIndex: 1 }}
-          >
-            <defs>
-              <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="5" refY="4" orient="auto">
-                <path d="M0,0 L8,4 L0,8 Z" fill="#adc6ff" />
-              </marker>
-              <marker id="arrowhead-outbound" markerWidth="8" markerHeight="8" refX="5" refY="4" orient="auto">
-                <path d="M0,0 L8,4 L0,8 Z" fill="#ffb595" />
-              </marker>
-            </defs>
-
-            {/* Render dynamically computing cables */}
-            {simShops.map(ss => {
-              const currentShop = shops.find(s => s.id === ss.id);
-              if (!currentShop) return null;
-
-              return ss.connections.map(targetId => {
-                const targetShop = shops.find(t => t.id === targetId);
-                if (!targetShop) return null;
-
-                // Center point coordinates calculation
-                const x1 = currentShop.posX + getShopWidthPx(currentShop) / 2;
-                const y1 = currentShop.posY + getShopHeightPx(currentShop) / 2;
-                const x2 = targetShop.posX + getShopWidthPx(targetShop) / 2;
-                const y2 = targetShop.posY + getShopHeightPx(targetShop) / 2;
-
-                // Create nice curved control points
-                const cx1 = x1;
-                const cy1 = y1 + (y2 - y1) / 2;
-                const cx2 = x2;
-                const cy2 = y1 + (y2 - y1) / 2;
-
-                return (
-                  <g key={`${ss.id}-${targetId}`}>
-                    {/* Background interactive hover trigger */}
-                    <path
-                      d={`M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`}
-                      className="fill-none stroke-current text-transparent stroke-[12] cursor-pointer pointer-events-auto"
-                      title="Click connection to delete"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // Delete line
-                        handleDisconnectLine(ss.id, targetId);
-                      }}
-                    />
-                    {/* Decorative active dash pathway line */}
-                    <path
-                      d={`M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`}
-                      className="fill-none stroke-[#adc6ff] stroke-[2] animate-flow-dash stroke-[dasharray:10_5] opacity-80"
-                      markerEnd="url(#arrowhead)"
-                    />
-                  </g>
-                );
-              });
-            })}
-
-            {/* Outbound static arrow vector of final node (Only from the final shop to return belt) */}
-            {shops.map(s => {
-              if (s.id === finalShopId) {
-                const xStart = s.posX + getShopWidthPx(s) / 2;
-                const yStart = s.posY;
-                return (
-                  <path
-                    key={`outbound-line-${s.id}`}
-                    d={`M ${xStart} ${yStart} L ${xStart} 68`}
-                    className="fill-none stroke-[#ffb595] stroke-[2] animate-flow-dash stroke-[dasharray:8_4] opacity-80"
-                    markerEnd="url(#arrowhead-outbound)"
-                  />
-                );
-              }
-              return null;
-            })}
-          </svg>
-
-          {/* Outbound Top Decorative Conveyor Belt */}
-          <div 
-            id="outbound-target-belt"
-            className="absolute top-10 left-16 w-[1240px] h-7 bg-primary/5 border-y border-primary/25 overflow-hidden z-0 rounded-sm"
-          >
-            {/* Moving marquee indicators */}
-            <div className="h-full w-full bg-[repeating-linear-gradient(90deg,transparent,transparent_30px,rgba(173,198,255,0.06)_30px,rgba(173,198,255,0.06)_60px)] animate-marquee-belt" />
-            <div className="absolute inset-0 flex items-center justify-end px-6 pointer-events-none select-none">
-              <span className="font-mono text-[9px] uppercase tracking-widest text-[#ffb595]/50 font-bold">OUTBOUND EXPORT TERMINAL &gt;&gt;</span>
-            </div>
-          </div>
-
-          {/* Active shop modular panels */}
-          {shops.map((shop, shopIdx) => {
-            const ssState = simShops.find(ss => ss.id === shop.id);
-            const currentParts = ssState ? ssState.parts : [];
-            const isFull = Math.max(0, currentParts.length - 1) >= (localBuffers[shop.id] || shop.bufferSize);
-
-            // Fetch running timer details
-            const secsRemaining = ssState ? Math.max(0, Math.ceil(ssState.currentCountdown)) : shop.cycleTime;
-            const progressRatio = ssState ? (ssState.currentCountdown / shop.cycleTime) * 100 : 100;
-
-            return (
-              <article
-                key={shop.id}
-                id={`panel-${shop.id}`}
-                className={`shop-panel absolute bg-[#171f33] border border-outline-variant rounded shadow-2xl flex flex-col overflow-hidden select-none z-20 hover:border-primary/50 transition-colors`}
-                style={{
-                  top: `${shop.posY}px`,
-                  left: `${shop.posX}px`,
-                  width: `${getShopWidthPx(shop)}px`,
-                  height: `${getShopHeightPx(shop)}px`,
-                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)'
-                }}
-              >
-                {/* Grab Handle Header */}
-                <header 
-                  className="px-4 py-2 bg-[#222a3d] border-b border-outline-variant flex justify-between items-center cursor-grab active:cursor-grabbing select-none"
-                  onMouseDown={(e) => handleCardHeaderMouseDown(e, shop.id)}
-                >
-                  <h3 className="font-mono uppercase font-bold text-[10px] tracking-wider select-none text-on-surface-variant">
-                    {shop.name}
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] text-on-surface-variant opacity-75 mr-1">
-                      [{Math.max(0, currentParts.length - 1)}/{localBuffers[shop.id] || shop.bufferSize}]
-                    </span>
-                    
-                    {/* Add Part Button */}
-                    <button 
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleAddPartToShop(shop.id);
-                      }}
-                      className="w-5.5 h-5.5 flex items-center justify-center rounded bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-400 transition-all cursor-pointer"
-                      title="Add Part / Job"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-
-
-                    
-                    <div className="w-1.5 h-1.5 rounded-full bg-outline-variant/40" />
-                  </div>
-                </header>
-
-                {/* Telemetry quick stats bar for processed items and stations left */}
-                <div className="px-4 py-2 bg-black/40 border-b border-outline-variant/30 flex flex-col gap-1 text-[9px] font-mono text-on-surface-variant uppercase select-none tracking-wider font-bold">
-                  <div className="flex items-center justify-between">
-                    <span className="opacity-70">Processed Count</span>
-                    <span className="text-emerald-400 font-extrabold">{processedCounts[shop.id] || 0} items</span>
-                  </div>
-                  <div className="flex items-center justify-between border-t border-outline-variant/15 pt-1">
-                    <span className="opacity-70">Stations Left</span>
-                    <span className="text-sky-400 font-extrabold">{currentParts.length}</span>
-                  </div>
-                </div>
-
-                {/* Queue box body with titles: Processing and Buffer Queue */}
-                <div className="flex-1 p-3 flex flex-col gap-3 overflow-y-auto relative bg-surface-container-low/30 scrollbar-thin scrollbar-thumb-outline-variant text-left">
-                  
-                  {/* Processing Section */}
-                  <div className="flex flex-col gap-1.5 shrink-0">
-                    <span className="font-mono text-[8px] uppercase tracking-wider text-[#adc6ff] font-bold opacity-80 select-none">
-                      Processing
-                    </span>
-                    <div className="flex flex-col gap-1.5">
-                      {(() => {
-                        const part = currentParts[0];
-                        const isBusy = !!part;
-                        
-                        // Deterministic station name A1 to A100 then B1
-                        const group = Math.floor(shopIdx / 100);
-                        const letter = String.fromCharCode(65 + Math.min(25, group));
-                        const num = (shopIdx % 100) + 1;
-                        const stationName = `${letter}${num}`;
-
-                        // Display the active piece shape/color when busy, or standard square when idle
-                        const shapeToRender = isBusy ? part.shape : 'square';
-                        const colorToRender = isBusy ? part.color : 'bg-slate-700/30 text-slate-500/50';
-
-                        const colorsList = [
-                          'text-red-400', 'text-amber-400', 'text-emerald-400', 'text-cyan-400',
-                          'text-sky-400', 'text-indigo-400', 'text-purple-400', 'text-rose-400',
-                          'text-teal-400', 'text-orange-400', 'text-fuchsia-400', 'text-lime-400'
-                        ];
-                        const chosenTextColor = colorsList[shopIdx % colorsList.length];
-
-                        return (
-                          <div 
-                            key={stationName}
-                            className={`p-1.5 border rounded flex items-center justify-between gap-1.5 transition-all text-[9.5px] font-mono ${
-                              isBusy 
-                                ? 'bg-primary/10 border-primary/45 shadow-sm' 
-                                : 'bg-black/10 border-outline-variant/15 text-on-surface-variant/30'
-                            }`}
-                          >
-                            <div className="flex items-center gap-1.5 truncate w-full">
-                              {/* Station geometric shape indicator */}
-                              <div className="scale-75 shrink-0">
-                                {renderClipShape(shapeToRender, colorToRender)}
-                              </div>
-                              <span className={`font-bold shrink-0 ${isBusy ? chosenTextColor : 'opacity-35'}`}>
-                                {stationName}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-
-                  {/* Divider line style */}
-                  <div className="w-full border-t border-outline-variant/20 my-0.5 shrink-0" />
-
-                   {/* Buffer Queue Section */}
-                  <div className="flex-1 flex flex-col gap-1.5 min-h-[55px]">
-                    <span className="font-mono text-[8px] uppercase tracking-wider text-on-surface-variant font-bold opacity-60 select-none">
-                      Buffer Queue ({Math.max(0, currentParts.length - 1)} waiting)
-                    </span>
-                    {currentParts.length <= 1 ? (
-                      <div className="flex-1 flex items-center justify-center text-center text-on-surface-variant text-[9px] font-mono opacity-40 select-none uppercase tracking-tight py-3 border border-dashed border-outline-variant/25 rounded bg-black/5">
-                        [EMPTY]
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-4 gap-1.5 w-full font-mono">
-                        {currentParts.slice(1).map((part, pidx) => (
-                          <div 
-                            key={`${part.id}-${pidx}`}
-                            className="bg-surface-container-lowest border border-outline-variant/60 rounded p-1 flex flex-col items-center justify-center gap-1 transition-all duration-300 transform scale-95"
-                          >
-                            {renderClipShape(part.shape, part.color)}
-                            <span className="font-mono text-[8px] uppercase font-bold text-primary">{part.id}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Warning: Queue Overflowing */}
-                  {isFull && (
-                    <div className="absolute top-1 right-1 bg-red-500/15 border border-red-500/30 text-amber-500 rounded p-1" title="Buffer Limit Reached">
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400 animate-bounce" />
-                    </div>
-                  )}
-                </div>
-
-                 {/* Timeline / Cycle Ticker Footer */}
-                <footer className="px-4 py-2.5 bg-[#222a3d] border-t border-outline-variant/60 flex items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-1.5 shrink-0 select-none">
-                    <div className={`w-2 h-2 rounded-full ${isSimRunning && currentParts.length > 0 ? 'bg-primary animate-pulse' : 'bg-outline-variant opacity-50'}`} />
-                    <span className="text-primary font-mono font-bold text-[10.5px]" title="Time left for the current part">
-                      {formatSecondsToHMS(secsRemaining)}
-                    </span>
-                  </div>
-
-                  <div className="flex-1 h-1 bg-surface-container rounded-full overflow-hidden min-w-[30px]">
-                    <div 
-                      className="h-full bg-primary transition-all duration-100 ease-linear"
-                      style={{ width: `${progressRatio}%` }}
-                    />
-                  </div>
-
-                  <span className="font-mono text-[9px] text-[#8e909a] font-bold select-none shrink-0" title="Total processed cycle time">
-                    {formatSecondsToHMS(shop.cycleTime)}
-                  </span>
-                </footer>
-              </article>
-            );
-          })}
-
-          {/* Active flying components on coordinates */}
-          {flyingParts.map(fp => {
-            let currentX = fp.startX;
-            let currentY = fp.startY;
-
-            if (fp.toId === 'conveyor') {
-              // Straight line logic for final outbound conveyor
-              currentX = fp.startX + (fp.endX - fp.startX) * (fp.progress / 100);
-              currentY = fp.startY + (fp.endY - fp.startY) * (fp.progress / 100);
-            } else {
-              // Cubic Bezier curve formula so parts follow the conveyor belt paths exactly
-              const t = fp.progress / 100;
-              const mt = 1 - t;
-              
-              const mt3 = mt * mt * mt;
-              const mt2t = 3 * mt * mt * t;
-              const mtt2 = 3 * mt * t * t;
-              const t3 = t * t * t;
-
-              // Cubic Bezier control points match the SVG drawn path perfectly
-              const cx1 = fp.startX;
-              const cy1 = fp.startY + (fp.endY - fp.startY) / 2;
-              const cx2 = fp.endX;
-              const cy2 = fp.startY + (fp.endY - fp.startY) / 2;
-
-              currentX = mt3 * fp.startX + mt2t * cx1 + mtt2 * cx2 + t3 * fp.endX;
-              currentY = mt3 * fp.startY + mt2t * cy1 + mtt2 * cy2 + t3 * fp.endY;
-            }
-
-            return (
-              <div 
-                key={fp.id}
-                className="absolute z-50 flex items-center justify-center"
-                style={{
-                  left: `${currentX}px`,
-                  top: `${currentY}px`,
-                  transform: 'translate(-50%, -50%)',
-                  pointerEvents: 'none'
-                }}
-              >
-                <div className="relative animate-pulse">
-                  {renderClipShape(fp.shape, fp.color)}
-                  <span className="absolute inset-0 flex items-center justify-center font-mono text-[8px] font-bold text-[#0b1326] drop-shadow">
-                    {fp.id}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Floating Controls HUD: Zoom Percentage Selector */}
-        <div className="absolute bottom-6 right-6 flex items-center gap-4 px-4 py-2 bg-surface-container-high/85 backdrop-blur-md border border-outline-variant rounded-xl shadow-2xl z-30 select-none">
+      {/* Main Simulation Viewport and interactive canvas Area */}
+      <main className="flex-1 flex flex-col bg-surface-dim relative overflow-hidden select-none">
+        
+        {/* Infinite Navigation & Canvas Zoom floating controller - placed elegantly above the footer taskbar */}
+        <div className="absolute bottom-16 right-6 z-20 bg-[#121c33]/92 border border-[#2d3a58]/45 px-3 py-1.5 rounded-lg backdrop-blur-sm shadow-xl flex items-center gap-3 select-none">
+          {/* Quick Trigger viewport alignment coordinates reset */}
           <button 
             type="button"
-            onClick={handleZoomReset}
-            className="text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center cursor-pointer" 
-            title="Fit to Screen"
+            onClick={() => { setPanX(40); setPanY(10); setZoomLevel(0.95); }}
+            className="text-on-surface-variant hover:text-primary transition-all text-[9px] uppercase font-mono font-bold tracking-tight cursor-pointer"
+            title="Reset Pan & coordinates"
           >
-            <RotateCcw className="w-4 h-4" />
+            Reset Camera
           </button>
-          
-          <div className="w-px h-5 bg-outline-variant/40" />
-          
-          <div className="flex items-center gap-5">
+          <div className="h-3.5 w-px bg-outline-variant/30" />
+          <div className="flex items-center gap-2">
+            {/* Zoom Out Button option */}
             <button 
               type="button"
               onClick={handleZoomOut}
-              disabled={zoomLevel <= 0.5}
-              className="text-[#dae2fd] hover:text-primary transition-colors flex items-center justify-center cursor-pointer disabled:opacity-40"
+              disabled={zoomLevel <= 0.65}
+              className="text-[#dae2fd] hover:text-primary transition-colors cursor-pointer disabled:opacity-40"
+              title="Zoom Canvas Out"
             >
-              <ZoomOut className="w-4.5 h-4.5" />
+              <ZoomOut className="w-4 h-4" />
             </button>
-            <span className="font-mono font-bold text-primary text-[11px] min-w-[36px] text-center">
+            {/* Live Percent level Display */}
+            <span className="font-mono text-xs font-bold text-primary min-w-[34px] text-center">
               {Math.round(zoomLevel * 100)}%
             </span>
+            {/* Zoom In Button option */}
             <button 
               type="button"
               onClick={handleZoomIn}
-              disabled={zoomLevel >= 2.0}
-              className="text-[#dae2fd] hover:text-primary transition-colors flex items-center justify-center cursor-pointer disabled:opacity-40"
+              disabled={zoomLevel >= 1.8}
+              className="text-[#dae2fd] hover:text-primary transition-colors cursor-pointer disabled:opacity-40"
+              title="Zoom Canvas In"
             >
-              <ZoomIn className="w-4.5 h-4.5" />
+              <ZoomIn className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-
-        {/* Floating Simulation Timer & Speed Controller Popup */}
+        {/* Draggable & Compact Simulator clock HUD */}
         {showTimerPopup && (
           <div 
             style={{ 
@@ -1190,343 +894,825 @@ export default function SimulationPanel({
               top: `${popupPos.y}px`, 
               transform: 'none' 
             }}
-            className="w-[285px] bg-[#121c33]/92 backdrop-blur-md border border-primary/30 rounded-xl p-3 shadow-2xl z-30 select-none animate-in fade-in duration-300"
+            className="w-[210px] bg-[#121c33]/92 backdrop-blur-md border border-primary/45 rounded-xl p-2.5 shadow-2xl z-30 select-none animate-in fade-in duration-300"
           >
             <div 
               onMouseDown={handlePopupMouseDown}
-              className="flex justify-between items-center border-b border-outline-variant/30 pb-1.5 mb-2 cursor-grab active:cursor-grabbing hover:bg-white/5 p-1 -m-1 rounded-t-lg transition-colors"
-              title="Drag clock control display"
+              className="flex justify-between items-center border-b border-outline-variant/30 pb-1 mb-1.5 cursor-grab active:cursor-grabbing hover:bg-white/5 p-0.5 -m-0.5 rounded-t-lg transition-colors"
             >
-              <div className="flex items-center gap-1.5">
-                <GripVertical className="w-3 h-3 text-on-surface-variant opacity-60 pointer-events-none" />
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="font-mono text-[8px] uppercase tracking-wider text-[#dae2fd]/75 font-semibold pointer-events-none">Simulator Clock HUD</span>
+              <div className="flex items-center gap-1">
+                <GripVertical className="w-2.5 h-2.5 text-on-surface-variant opacity-60 pointer-events-none" />
+                <span className="font-mono text-[7px] uppercase tracking-wider text-[#dae2fd]/75 font-semibold pointer-events-none">CLOCK HUD</span>
               </div>
               <button 
                 type="button" 
                 onClick={() => setShowTimerPopup(false)}
                 className="text-on-surface-variant hover:text-red-400 p-0.5 rounded transition-colors cursor-pointer"
-                title="Hide clock controls"
               >
-                <X className="w-3" />
+                <X className="w-2.5" />
               </button>
             </div>
 
             {/* Timer Output Display */}
-            <div className="flex flex-col items-center justify-center bg-black/45 rounded-lg py-1.5 px-3 border border-outline-variant/15 mb-2.5 font-mono select-none">
-              <span className="text-[8px] text-on-surface-variant/50 uppercase tracking-widest mb-0.5 font-bold">Simulated Time Elapsed</span>
-              <span className="text-[19px] font-bold text-primary tracking-wider tabular-nums leading-none">
+            <div className="flex flex-col items-center justify-center bg-black/45 rounded-lg py-1 px-2 border border-outline-variant/15 mb-2 font-mono">
+              <span className="text-[7px] text-on-surface-variant/50 uppercase tracking-widest mb-0.5 font-bold">Simulated Time</span>
+              <span className="text-[15px] font-bold text-primary tracking-wider tabular-nums leading-none">
                 {formatTime(simulatedElapsed)}
               </span>
-              <div className="flex items-center gap-1 mt-1">
-                <span className="text-[8px] text-on-surface-variant/40 uppercase">Clock Rate: </span>
-                <span className="text-[8px] text-[#adc6ff]/80 font-bold">{simSpeed}x Realtime</span>
-              </div>
+              <span className="text-[7px] text-[#adc6ff]/70 font-semibold mt-0.5">{simSpeed}x Realtime</span>
             </div>
 
-            {/* Speed Option Buttons */}
-            <div className="flex flex-col gap-1.5">
-              <div className="flex justify-between items-center select-none">
-                <label className="font-mono text-[8px] uppercase tracking-wider text-on-surface-variant opacity-85 font-bold">
-                  Simulation Clock Speed
-                </label>
-                <span className="font-mono text-[8px] text-primary/80 font-semibold bg-primary/10 px-1 py-0.2 rounded border border-primary/20">
-                  Page {speedPage} of 1000
-                </span>
-              </div>
-              <div className="grid grid-cols-5 gap-1">
-                {Array.from({ length: 10 }, (_, i) => (speedPage - 1) * 10 + 1 + i).map(speed => (
-                  <button 
-                    key={speed}
-                    type="button"
-                    onClick={() => {
-                      setSimSpeed(speed);
+            {/* Speed Range Slider up to 1000x with a manual number input */}
+            <div className="flex flex-col gap-1 mx-0.5 bg-black/20 p-1.5 rounded border border-outline-variant/10 select-none font-mono">
+              <div className="flex justify-between items-center text-[7.5px] font-bold mb-0.5">
+                <span className="text-on-surface-variant uppercase">Speed Rate</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    value={simSpeed}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      if (!isNaN(val)) {
+                        setSimSpeed(Math.max(1, Math.min(1000, val)));
+                      } else {
+                        setSimSpeed(1);
+                      }
                     }}
-                    className={`font-mono text-[9px] py-0.5 px-0.5 rounded border transition-all cursor-pointer flex flex-col items-center justify-center ${
-                      simSpeed === speed 
-                        ? 'bg-primary/25 text-primary border-primary shadow-inner font-extrabold' 
-                        : 'bg-[#1b2640]/50 border-outline-variant/30 text-on-surface-variant hover:bg-[#1b2640] hover:text-[#dae2fd]'
-                    }`}
-                  >
-                    <span>{speed}x</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            {/* Page navigation controls */}
-            <div className="mt-2 flex justify-between items-center bg-[#1b2640]/30 p-1 rounded-lg border border-outline-variant/20 select-none">
-              <span className="font-mono text-[8.5px] uppercase tracking-wider text-on-surface-variant/75 pl-1.5 font-bold">
-                Nav Rates Map
-              </span>
-              <div className="flex items-center gap-1.5">
-                <button 
-                   type="button"
-                  disabled={speedPage <= 1}
-                  onClick={() => setSpeedPage(prev => Math.max(1, prev - 1))}
-                  className={`p-0.5 rounded border transition-all flex items-center justify-center ${
-                    speedPage <= 1 
-                      ? 'bg-transparent border-outline-variant/10 text-on-surface-variant/20 cursor-not-allowed opacity-30' 
-                      : 'bg-primary/15 border-primary/30 text-primary hover:bg-primary/25 cursor-pointer'
-                  }`}
-                  title="Previous Speed Page"
-                >
-                  <ChevronLeft className="w-3 h-3" />
-                </button>
-                <button 
-                  type="button"
-                  disabled={speedPage >= 1000}
-                  onClick={() => setSpeedPage(prev => Math.min(1000, prev + 1))}
-                  className={`p-0.5 rounded border transition-all flex items-center justify-center ${
-                    speedPage >= 1000 
-                      ? 'bg-transparent border-outline-variant/10 text-on-surface-variant/20 cursor-not-allowed opacity-30' 
-                      : 'bg-primary/15 border-primary/30 text-[#4c8df6] hover:bg-primary/25 cursor-pointer'
-                  }`}
-                  title="Next Speed Page"
-                >
-                  <ChevronRight className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-
-            {/* Speed Range Slider up to 10000x */}
-            <div className="flex flex-col gap-1 mt-2 bg-black/25 p-1 px-1.5 rounded border border-outline-variant/10 select-none font-mono">
-              <div className="flex justify-between items-center text-[8.5px] font-bold">
-                <span className="text-on-surface-variant">SLIDE SPEED TO 10000X</span>
-                <span className="text-primary font-extrabold">{simSpeed}x</span>
+                    className="w-12 bg-[#10192e] border border-outline-variant/30 text-center py-0.5 rounded text-[8px] text-primary font-bold focus:outline-none focus:border-primary"
+                    title="Manual speed input"
+                  />
+                  <span className="text-primary font-extrabold text-[8px]">x</span>
+                </div>
               </div>
               <input
                 type="range"
                 min="1"
-                max="10000"
+                max="1000"
                 step="1"
                 value={simSpeed}
                 onChange={(e) => {
                   setSimSpeed(parseInt(e.target.value) || 1);
                 }}
-                className="w-full accent-primary bg-[#131b2e] border border-outline-variant/20 h-1 rounded-lg cursor-pointer text-[8px]"
+                className="w-full accent-primary bg-[#131b2e] border border-[#2d3a58]/35 h-0.5 rounded-lg cursor-pointer"
               />
             </div>
 
-            {/* Simulation Ending Duration Target Section */}
-            <div className="mt-3 border-t border-outline-variant/30 pt-2.5 select-none animate-in fade-in duration-200">
-              <label className="font-mono text-[8.5px] uppercase tracking-wider text-on-surface-variant opacity-85 font-bold block mb-1.5">
-                Simulation Runtime Target
+            {/* Run state controls containing exactly 2 buttons: Start or Stop */}
+            <div className="mt-2 text-left font-mono">
+              <label className="font-mono text-[7.5px] uppercase tracking-wider text-on-surface-variant opacity-85 font-bold block mb-1">
+                Continuous Clock
               </label>
-              
-              <div className="grid grid-cols-2 gap-1 mb-2">
-                {[
-                  { id: 'manual', label: 'Continuous Run' },
-                  { id: '30s', label: 'End in 30s' },
-                  { id: '1m', label: 'End in 1m' },
-                  { id: '2m', label: 'End in 2m' },
-                  { id: '5m', label: 'End in 5m' },
-                  { id: '10m', label: 'End in 10m' },
-                  { id: '1h', label: 'End in 1hr' },
-                  { id: 'custom', label: 'Custom Timer' }
-                ].map(op => (
-                  <button
-                    key={op.id}
-                    type="button"
-                    onClick={() => {
-                      setTargetEndMode(op.id);
-                    }}
-                    className={`font-mono text-[8px] py-0.5 px-1 rounded border transition-all cursor-pointer text-center ${
-                      targetEndMode === op.id
-                        ? 'bg-primary/25 text-primary border-primary font-bold'
-                        : 'bg-[#1b2640]/30 border-outline-variant/25 text-on-surface-variant hover:bg-[#1b2640]'
-                    }`}
-                  >
-                    {op.label}
-                  </button>
-                ))}
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isSimRunning) {
+                      setSimulatedElapsed(0);
+                      setSimState(prev => ({
+                        ...prev,
+                        conveyorExitCount: 0
+                      }));
+                      setAvgPartProduced("0.0");
+                    }
+                    setIsSimRunning(true);
+                  }}
+                  className={`font-mono text-[9px] py-1 rounded border transition-all cursor-pointer text-center font-bold uppercase ${
+                    isSimRunning
+                      ? 'bg-emerald-500/25 text-emerald-400 border-emerald-500 shadow-sm'
+                      : 'bg-[#1b2640]/30 border-outline-variant/15 text-on-surface-variant hover:bg-[#1b2640]'
+                  }`}
+                >
+                  Start
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Stop the interactive simulation clock stream without resetting the elapsed time
+                    setIsSimRunning(false);
+                  }}
+                  className={`font-mono text-[9px] py-1 rounded border transition-all cursor-pointer text-center font-bold uppercase ${
+                    !isSimRunning
+                      ? 'bg-rose-500/25 text-rose-400 border-rose-500 shadow-sm'
+                      : 'bg-[#1b2640]/30 border-outline-variant/15 text-on-surface-variant hover:bg-[#1b2640]'
+                  }`}
+                >
+                  Stop
+                </button>
               </div>
-
-              {/* Custom Target Speed Inputs */}
-              {targetEndMode === 'custom' && (() => {
-                const hours = Math.floor(customTargetSeconds / 3600);
-                const minutes = Math.floor((customTargetSeconds % 3600) / 60);
-                const seconds = customTargetSeconds % 60;
-                
-                const updateTime = (h: number, m: number, s: number) => {
-                  const total = (h * 3600) + (m * 60) + s;
-                  setCustomTargetSeconds(Math.max(1, Math.min(356400, total)));
-                };
-
-                return (
-                  <div className="flex flex-col gap-1 bg-[#1b2640]/50 p-1.5 rounded border border-outline-variant/30 mb-2 font-mono">
-                    <span className="text-[8px] text-on-surface-variant font-bold uppercase select-none">Custom Target Duration:</span>
-                    <div className="flex items-center justify-between gap-1 text-[9px]">
-                      {/* Hours */}
-                      <div className="flex flex-col items-center flex-1">
-                        <span className="text-[7.5px] text-on-surface-variant/75 mb-0.5 font-bold uppercase">Hrs</span>
-                        <input
-                          type="number"
-                          min="0"
-                          max="99"
-                          value={hours}
-                          onChange={(e) => {
-                            const val = Math.max(0, parseInt(e.target.value) || 0);
-                            updateTime(val, minutes, seconds);
-                          }}
-                          className="w-full bg-black/45 border border-outline-variant/50 rounded text-center font-semibold text-primary py-0.5 text-[9px] focus:outline-none focus:border-primary"
-                        />
-                      </div>
-                      
-                      <span className="text-on-surface-variant/60 pt-2 opacity-50 font-bold">:</span>
-
-                      {/* Minutes */}
-                      <div className="flex flex-col items-center flex-1">
-                        <span className="text-[7.5px] text-on-surface-variant/75 mb-0.5 font-bold uppercase">Min</span>
-                        <input
-                          type="number"
-                          min="0"
-                          max="59"
-                          value={minutes}
-                          onChange={(e) => {
-                            const val = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
-                            updateTime(hours, val, seconds);
-                          }}
-                          className="w-full bg-black/45 border border-outline-variant/50 rounded text-center font-semibold text-primary py-0.5 text-[9px] focus:outline-none focus:border-primary"
-                        />
-                      </div>
-
-                      <span className="text-on-surface-variant/60 pt-2 opacity-50 font-bold">:</span>
-
-                      {/* Seconds */}
-                      <div className="flex flex-col items-center flex-1">
-                        <span className="text-[7.5px] text-on-surface-variant/75 mb-0.5 font-bold uppercase">Sec</span>
-                        <input
-                          type="number"
-                          min="0"
-                          max="59"
-                          value={seconds}
-                          onChange={(e) => {
-                            const val = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
-                            updateTime(hours, minutes, val);
-                          }}
-                          className="w-full bg-black/45 border border-outline-variant/50 rounded text-center font-semibold text-primary py-0.5 text-[9px] focus:outline-none focus:border-primary"
-                        />
-                      </div>
-                    </div>
-                    {/* Display feedback of total seconds in small font inside */}
-                    <div className="text-[8px] text-on-surface-variant/60 text-right font-semibold mt-0.5">
-                      TOTAL: {customTargetSeconds}s
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Real-time Dynamic Feedback indicator */}
-              {targetEndMode !== 'manual' && targetRealRemaining !== null && (
-                <div className="bg-[#1c2438] p-1.5 rounded-lg border border-primary/20 space-y-1 font-mono">
-                  <div className="flex justify-between items-center text-[8.5px] font-semibold text-[#adc6ff]">
-                    <span>REAL-TIME REMAINING:</span>
-                    <span className="font-bold text-primary animate-pulse">{targetRealRemaining.toFixed(1)}s</span>
-                  </div>
-                  <div className="flex justify-between items-center text-[7.5px] text-on-surface-variant/70">
-                    <span>CALCULATED VELOCITY:</span>
-                    <span className="font-bold text-on-surface">{simSpeed}x</span>
-                  </div>
-                  {/* Progress bar representing real timer progress remaining */}
-                  <div className="w-full bg-black/30 h-1 rounded-full overflow-hidden">
-                    <div 
-                      className="bg-primary h-full transition-all duration-300"
-                      style={{ 
-                        width: `${Math.min(100, (targetRealRemaining / (
-                          targetEndMode === '30s' ? 30 :
-                          targetEndMode === '1m' ? 60 :
-                          targetEndMode === '2m' ? 120 :
-                          targetEndMode === '5m' ? 300 :
-                          targetEndMode === '10m' ? 600 :
-                          targetEndMode === '1h' ? 3600 :
-                          customTargetSeconds
-                        )) * 100)}%`
-                      }} 
-                    />
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}
 
-
-      </main>
-
-      {/* Synchronized status indicators bottom banner */}
-      <footer className="h-12 border-t border-outline-variant bg-[#131b2e] flex items-center justify-between px-4 shrink-0 z-10 font-mono text-xs select-none">
-        <div className="flex items-center gap-6 divide-x divide-outline-variant/30">
-          <div className="flex items-center gap-2">
-            <div className={`w-4.5 h-4.5 rounded-full flex items-center justify-center transition-colors ${isSimRunning ? 'bg-primary-container text-[#00285c]' : 'bg-outline text-[#dae2fd]'}`}>
-              {isSimRunning ? <Play className="w-2.5 h-2.5 fill-current" /> : <Pause className="w-2.5 h-2.5 fill-current" />}
+        {/* Global Control Monitor bar at the top */}
+        <header className="px-6 py-3 border-b border-outline-variant/20 bg-surface-container-low/50 flex justify-between items-center shrink-0 z-10 text-left">
+          <div className="flex items-center gap-3">
+            <span className="p-1 px-2.5 bg-emerald-500/10 text-emerald-400 font-mono text-[9px] rounded font-bold border border-emerald-500/25">
+              FLOW DIAGRAM
+            </span>
+            <div className="flex flex-col">
+              <h1 className="text-sm font-semibold text-on-surface">Live Workshop Simulator</h1>
+              <p className="text-[10px] text-on-surface-variant mt-0.5">Drag shops to reorder, zoom canvas to focus, click HUD to lock clock speed.</p>
             </div>
-            <span className={`text-[10px] font-bold uppercase tracking-wider ${isSimRunning ? 'text-[#adc6ff]' : 'text-on-surface-variant'}`}>
-              {isSimRunning ? 'SIM_RUNNING' : 'SIM_PAUSED'}
-            </span>
           </div>
 
-          <div className="flex items-center gap-2 pl-6">
-            <ClockIcon />
-            <span className="text-[10px] tracking-tight">{avgCycleTime}s AVG CYCLE COUNT</span>
+          <div className="flex items-center gap-2.5">
+            {/* Operational Stream Connected Indicator */}
+            <div className="text-[10px] text-on-surface-variant flex items-center gap-1.5 shrink-0 bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-2.5 py-1.5 font-mono select-none">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-bold opacity-85 uppercase tracking-widest text-[#dae2fd]/75 text-[9px]">Operational Stream Connected</span>
+            </div>
+
+            {/* Show HUD Toggle */}
+            <button
+              type="button"
+              onClick={() => setShowTimerPopup(!showTimerPopup)}
+              className={`px-3 py-2 border rounded-lg font-mono text-[10px] uppercase font-bold tracking-tight transition-colors cursor-pointer ${
+                showTimerPopup 
+                  ? 'bg-primary/10 border-primary/30 text-primary' 
+                  : 'border-outline-variant/40 text-on-surface-variant hover:bg-surface-container-high'
+              }`}
+            >
+              TIMER HUD
+            </button>
+          </div>
+        </header>
+
+        {/* Dynamic Drag-Pan Canvas Container Frame */}
+        <div 
+          ref={canvasRef}
+          onMouseDown={handleCanvasMouseDown}
+          onMouseMove={handleCanvasMouseMove}
+          onMouseUp={handleCanvasMouseUp}
+          onMouseLeave={handleCanvasMouseUp}
+          className="flex-1 w-full relative overflow-hidden bg-[#0d1527] cursor-grab active:cursor-grabbing select-none"
+        >
+          {/* Canvas Transform Wrapper block */}
+          <div 
+            style={{
+              transform: `translate(${panX}px, ${panY}px) scale(${zoomLevel})`,
+              transformOrigin: '0 0',
+              position: 'absolute',
+              width: '10000px',
+              height: '10000px',
+              left: 0,
+              top: 0
+            }}
+            className="transition-transform duration-75 ease-out select-none"
+          >
+            {/* Background alignment blueprint board lines */}
+            <div className="absolute inset-0 bg-[#0d1527] pointer-events-none" 
+              style={{
+                backgroundImage: 'radial-gradient(ellipse at center, rgba(16,28,54,0.3) 0%, rgba(9,15,28,0.5) 100%), linear-gradient(rgba(45,58,88,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(45,58,88,0.04) 1px, transparent 1px)',
+                backgroundSize: '100% 100%, 40px 40px, 40px 40px'
+              }}
+            />
+
+            {/* SVG Cable connections & progress animations layer */}
+            <svg 
+              className="absolute inset-0 pointer-events-none z-0" 
+              style={{ width: '5000px', height: '5000px' }}
+            >
+              <defs>
+                <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto">
+                  <path d="M0,0 L6,3 L0,6 Z" fill="#adc6ff" />
+                </marker>
+              </defs>
+
+              {/* OUTSHOP output target path curve when OUTPUT shop exists */}
+              {shops.map(s => {
+                if (s.isOutputShop) {
+                  const x1 = s.posX + getShopWidthPx(s) / 2;
+                  const y1 = s.posY + 30;
+                  const x2 = x1;
+                  const y2 = 65;
+
+                  return (
+                    <g key={`out-conveyor-${s.id}`}>
+                      {/* 1. Heavy Conveyor Frame Base */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        className="stroke-[#1e293b] stroke-[10] stroke-linecap-round opacity-90"
+                      />
+                      {/* 2. Inner Conveyor Belt Beltway Bed */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        className="stroke-[#0b0f19] stroke-[7] stroke-linecap-round"
+                      />
+                      {/* 3. Static Roller Slat Lines */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        className="stroke-[#475569]/30 stroke-[5] stroke-dasharray-[3_8]"
+                      />
+                      {/* 4. Active rollers movement animation */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        className="stroke-[#2a3042]/70 stroke-[5] stroke-dasharray-[8_16]"
+                        style={{
+                          strokeDashoffset: isSimRunning ? `${simulatedElapsed * 16}px` : '0px'
+                        }}
+                      />
+                      {/* 5. Glowing directional conveyor flow arrows */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        className="stroke-orange-500/80 stroke-[2.5]"
+                        style={{
+                          strokeDasharray: '6 14',
+                          strokeDashoffset: isSimRunning ? `${simulatedElapsed * 24}px` : '0px'
+                        }}
+                        markerEnd="url(#arrowhead)"
+                      />
+                    </g>
+                  );
+                }
+                return null;
+              })}
+
+              {/* Draw animated physical conveyor belts with guide rollers, glowing arrows & conduits connecting the shops */}
+              {simShops.map(ss => {
+                const currentShop = shops.find(s => s.id === ss.id);
+                if (!currentShop) return null;
+
+                return ss.connections.map(targetId => {
+                  const targetShop = shops.find(t => t.id === targetId);
+                  if (!targetShop) return null;
+
+                  const x1 = currentShop.posX + getShopWidthPx(currentShop) / 2;
+                  const y1 = currentShop.posY + getShopHeightPx(currentShop) - 20;
+                  const x2 = targetShop.posX + getShopWidthPx(targetShop) / 2;
+                  const y2 = targetShop.posY + 30;
+
+                  // Bezier curve calculations for a smooth conveyor flow path
+                  const cy1 = y1 + (y2 - y1) / 2;
+                  const cy2 = y1 + (y2 - y1) / 2;
+
+                  return (
+                    <g key={`flow-${ss.id}-${targetId}`}>
+                      {/* 1. Heavy Conveyor Frame Base (outer metal border highlight) */}
+                      <path
+                        d={`M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`}
+                        className="fill-none stroke-[#1e293b] stroke-[10] stroke-linecap-round opacity-90"
+                      />
+                      {/* 2. Inner Conveyor Belt Beltway Bed (the track itself) */}
+                      <path
+                        d={`M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`}
+                        className="fill-none stroke-[#0b0f19] stroke-[7] stroke-linecap-round"
+                      />
+                      {/* 3. Static Roller Slat Lines across the track structure */}
+                      <path
+                        d={`M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`}
+                        className="fill-none stroke-[#475569]/30 stroke-[5] stroke-dasharray-[3_8]"
+                      />
+                      {/* 4. Active rollers movement animation representing traction slats rotating */}
+                      <path
+                        d={`M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`}
+                        className="fill-none stroke-[#2a3042]/70 stroke-[5] stroke-dasharray-[8_16]"
+                        style={{
+                          strokeDashoffset: isSimRunning ? `${-simulatedElapsed * 16}px` : '0px'
+                        }}
+                      />
+                      {/* 5. Glowing directional conveyor flow arrows (neon guides that indicate active stream) */}
+                      <path
+                        d={`M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`}
+                        className="fill-none stroke-[#38bdf8]/80 stroke-[2.5]"
+                        style={{
+                          strokeDasharray: '6 14',
+                          strokeDashoffset: isSimRunning ? `${-simulatedElapsed * 24}px` : '0px'
+                        }}
+                        markerEnd="url(#arrowhead)"
+                      />
+                      {/* 6. Dynamic micro pulses running faster to add life to the flowing conveyor link */}
+                      <path
+                        d={`M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`}
+                        className="fill-none stroke-[#38bdf8] stroke-[1]"
+                        style={{
+                          strokeDasharray: '2 40',
+                          strokeDashoffset: isSimRunning ? `${-simulatedElapsed * 40}px` : '0px'
+                        }}
+                      />
+                    </g>
+                  );
+                });
+              })}
+
+              {/* Dynamic Inbound intake conveyor belt drawings linked directly to Entrance Shop */}
+              {shops.map(s => {
+                if (s.isInputShop) {
+                  const x1 = s.posX - 400;
+                  const y1 = s.posY + 32;
+                  const x2 = s.posX;
+                  const y2 = y1;
+
+                  return (
+                    <g key={`intake-svg-cables-${s.id}`}>
+                      {/* 1. Heavy Conveyor Frame Base */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        className="stroke-[#1e293b] stroke-[10] stroke-linecap-round opacity-90"
+                      />
+                      {/* 2. Inner Conveyor Belt Beltway Bed */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        className="stroke-[#0b0f19] stroke-[7] stroke-linecap-round"
+                      />
+                      {/* 3. Static Roller Slat Lines */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        className="stroke-[#475569]/30 stroke-[5] stroke-dasharray-[3_8]"
+                      />
+                      {/* 4. Active rollers movement animation */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        className="stroke-[#2a3042]/70 stroke-[5] stroke-dasharray-[8_16]"
+                        style={{
+                          strokeDashoffset: isSimRunning ? `${-simulatedElapsed * 16}px` : '0px'
+                        }}
+                      />
+                      {/* 5. Glowing directional conveyor flow arrows */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        className="stroke-emerald-500/80 stroke-[2.5]"
+                        style={{
+                          strokeDasharray: '6 14',
+                          strokeDashoffset: isSimRunning ? `${-simulatedElapsed * 24}px` : '0px'
+                        }}
+                        markerEnd="url(#arrowhead)"
+                      />
+                    </g>
+                  );
+                }
+                return null;
+              })}
+            </svg>
+
+            {/* Static Visual Inbound Intake Conveyor Box */}
+            {shops.map(s => {
+              if (s.isInputShop) {
+                const beltX = -1000;
+                const beltWidth = s.posX - beltX - 10;
+                const beltY = s.posY + 16;
+
+                return (
+                  <div 
+                    key={`intake-visual-belt-${s.id}`}
+                    className="absolute bg-[#122a22]/60 border-y border-emerald-500/25 h-9 z-10 rounded-l flex items-center px-4 overflow-hidden select-none"
+                    style={{
+                      left: `${beltX}px`,
+                      top: `${beltY}px`,
+                      width: `${beltWidth}px`
+                    }}
+                  >
+                    <div 
+                      className="absolute inset-y-0 left-0 bg-[repeating-linear-gradient(90deg,transparent,transparent_20px,rgba(52,211,153,0.04)_20px,rgba(52,211,153,0.04)_40px)] pointer-events-none"
+                      style={{
+                        width: '3000px',
+                        transform: isSimRunning ? `translateX(${(simulatedElapsed * 15) % 40}px)` : 'none'
+                      }}
+                    />
+                    <div className="w-full text-right font-mono text-[8.5px] uppercase tracking-widest text-[#52d3a3]/65 font-black animate-pulse pr-4 select-none">
+                      MAIN PRIMARY INTAKE CONVEYOR SYSTEM &gt;&gt;
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })}
+
+            {/* Visual intake queue parts waiting inside the conveyor belt */}
+            {shops.map(s => {
+              if (s.isInputShop) {
+                return intakeQueue.slice(0, 30).map((qp, qIdx) => {
+                  const itemX = s.posX - 38 - qIdx * 28;
+                  const itemY = s.posY + 24;
+
+                  if (itemX < -900) return null;
+
+                  return (
+                    <div
+                      key={`intake-waiting-qp-${qp.id}`}
+                      className="absolute z-20 pointer-events-none hover:scale-115 transition-all duration-300 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
+                      style={{
+                        left: `${itemX}px`,
+                        top: `${itemY}px`,
+                      }}
+                    >
+                      {renderClipShape(qp.shape, qp.color)}
+                    </div>
+                  );
+                });
+              }
+              return null;
+            })}
+
+            {/* Visually permanent Final Outbound production conveyor belt at top */}
+            <div 
+              style={{ top: '35px', left: '150px', width: '2000px' }}
+              className="absolute bg-[#271d15]/50 border-y border-orange-400/25 h-7 z-0 flex items-center justify-between select-none overflow-hidden rounded-md"
+            >
+              <div 
+                className="absolute inset-y-0 left-0 bg-[repeating-linear-gradient(90deg,transparent,transparent_18px,rgba(249,115,22,0.05)_18px,rgba(249,115,22,0.05)_36px)] w-[4000px] pointer-events-none" 
+                style={{
+                  transform: isSimRunning ? `translateX(${(simulatedElapsed * 15) % 36}px)` : 'none'
+                }}
+              />
+              <span className="w-full text-center font-mono text-[7px] uppercase tracking-widest text-[#ffbf9d]/50 font-extrabold select-none">
+                &gt;&gt; PRODUCTION CONVEYOR EXIT LINE &gt;&gt;
+              </span>
+              <div className="absolute right-12 top-1/2 -translate-y-1/2 flex items-center gap-1.5 bg-orange-950/85 border border-orange-500/40 px-2.5 py-0.5 rounded text-[9.5px] font-mono text-orange-400 font-bold z-10 select-none shadow-[0_0_12px_rgba(249,115,22,0.4)]">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
+                <span>OUTBOUND PARTS COUNTER: {conveyorExitCount}</span>
+              </div>
+            </div>
+
+            {/* --- Conveyor Segment Overlay Labels with Directional Conveyors -- */}
+            {/* 1. Labeled inter-shop conveyor overlays */}
+            {simShops.map(ss => {
+              const currentShop = shops.find(s => s.id === ss.id);
+              if (!currentShop) return null;
+
+              return ss.connections.map(targetId => {
+                const targetShop = shops.find(t => t.id === targetId);
+                if (!targetShop) return null;
+
+                const x1 = currentShop.posX + getShopWidthPx(currentShop) / 2;
+                const y1 = currentShop.posY + getShopHeightPx(currentShop) - 20;
+                const x2 = targetShop.posX + getShopWidthPx(targetShop) / 2;
+                const y2 = targetShop.posY + 30;
+
+                const midX = (x1 + x2) / 2;
+                const midY = (y1 + y2) / 2;
+
+                return (
+                  <div 
+                    key={`conveyor-lbl-${ss.id}-${targetId}`}
+                    className="absolute bg-[#090f1d]/90 border border-sky-400/40 px-2.5 py-1 rounded-full text-[9.5px] font-mono font-bold text-[#38bdf8] select-none shadow-[0_4px_12px_rgba(0,0,0,0.7)] z-25 pointer-events-none flex items-center gap-1.5 whitespace-nowrap"
+                    style={{
+                      left: `${midX}px`,
+                      top: `${midY}px`,
+                      transform: 'translate(-50%, -50%)'
+                    }}
+                  >
+                    <span>CONVEYOR:</span>
+                    <span className="text-white font-extrabold">{currentShop.name} &rarr; {targetShop.name}</span>
+                  </div>
+                );
+              });
+            })}
+
+            {/* 2. Labeled intake conveyor overlay */}
+            {shops.map(s => {
+              if (s.isInputShop) {
+                const midX = s.posX - 220;
+                const midY = s.posY + 32;
+
+                return (
+                  <div 
+                    key={`conveyor-intake-lbl-${s.id}`}
+                    className="absolute bg-[#0b1c17]/90 border border-emerald-500/40 px-2.5 py-1 rounded-full text-[9.5px] font-mono font-bold text-emerald-400 select-none shadow-[0_4px_12px_rgba(0,0,0,0.7)] z-25 pointer-events-none flex items-center gap-1.5 whitespace-nowrap"
+                    style={{
+                      left: `${midX}px`,
+                      top: `${midY}px`,
+                      transform: 'translate(-50%, -50%)'
+                    }}
+                  >
+                    <span>INTAKE:</span>
+                    <span className="text-white font-extrabold">CONVEYOR &rarr; {s.name}</span>
+                  </div>
+                );
+              }
+              return null;
+            })}
+
+            {/* 3. Labeled outbound conveyor overlay */}
+            {shops.map(s => {
+              if (s.isOutputShop) {
+                const x1 = s.posX + getShopWidthPx(s) / 2;
+                const midY = (s.posY + 30 + 65) / 2;
+
+                return (
+                  <div 
+                    key={`conveyor-outbound-lbl-${s.id}`}
+                    className="absolute bg-[#1e130b]/90 border border-orange-500/45 px-2.5 py-1 rounded-full text-[9.5px] font-mono font-bold text-orange-400 select-none shadow-[0_4px_12px_rgba(0,0,0,0.7)] z-25 pointer-events-none flex items-center gap-1.5 whitespace-nowrap"
+                    style={{
+                      left: `${x1}px`,
+                      top: `${midY}px`,
+                      transform: 'translate(-50%, -50%)'
+                    }}
+                  >
+                    <span>OUTBOUND:</span>
+                    <span className="text-white font-extrabold">{s.name} &rarr; EXIT</span>
+                  </div>
+                );
+              }
+              return null;
+            })}
+
+            {/* Flying parts visualization loop in transit */}
+            {flyingParts.map(fp => {
+              const startX = fp.startX;
+              const startY = fp.startY;
+              const endX = fp.endX;
+              const endY = fp.endY;
+
+              let currentX = startX;
+              let currentY = startY;
+
+              if (fp.toId === 'conveyor') {
+                currentX = startX;
+                currentY = startY + (endY - startY) * (fp.progress / 100);
+              } else {
+                const cy1 = startY + (endY - startY) / 2;
+                const cy2 = startY + (endY - startY) / 2;
+
+                const t = fp.progress / 100;
+                currentX = (1 - t) * (1 - t) * (1 - t) * startX + 3 * (1 - t) * (1 - t) * t * startX + 3 * (1 - t) * t * t * endX + t * t * t * endX;
+                currentY = (1 - t) * (1 - t) * (1 - t) * startY + 3 * (1 - t) * (1 - t) * t * cy1 + 3 * (1 - t) * t * t * cy2 + t * t * t * endY;
+              }
+
+              return (
+                <div
+                  key={`flying-${fp.id}`}
+                  style={{
+                    position: 'absolute',
+                    left: `${currentX - 10}px`,
+                    top: `${currentY - 10}px`,
+                    transition: 'none',
+                    zIndex: 40
+                  }}
+                  className="pointer-events-none scale-110 drop-shadow-lg"
+                >
+                  {renderClipShape(fp.shape, fp.color)}
+                </div>
+              );
+            })}
+
+            {/* Interactive Shop cards */}
+            {shops.map(shop => {
+              const ssState = simShops.find(ss => ss.id === shop.id);
+              const totalDone = processedCounts[shop.id] || 0;
+
+              return (
+                <div
+                  key={shop.id}
+                  style={{
+                    position: 'absolute',
+                    left: `${shop.posX}px`,
+                    top: `${shop.posY}px`,
+                    width: `${getShopWidthPx(shop)}px`,
+                    height: `${getShopHeightPx(shop)}px`,
+                    zIndex: isDraggingCardRef.current === shop.id ? 50 : 20,
+                  }}
+                  className={`bg-[#0d162a]/92 border rounded-2xl shadow-xl flex flex-col justify-between overflow-hidden cursor-default transition-all select-none ${
+                    isDraggingCardRef.current === shop.id 
+                      ? 'border-primary ring-2 ring-primary/30 shadow-2xl scale-[1.02]' 
+                      : 'border-[#2d3a58]/60 hover:border-[#adc6ff]/50'
+                  }`}
+                >
+                  {/* Card Draggable Header */}
+                  <header 
+                    onMouseDown={(e) => handleCardDragStart(e, shop.id, shop.posX, shop.posY)}
+                    className="p-3 bg-[#111c34] border-b border-outline-variant/30 flex justify-between items-center cursor-move select-none"
+                    title="Drag to reposition card"
+                  >
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex flex-col gap-0.5 opacity-60">
+                        <div className="w-1.5 h-px bg-on-surface-variant" />
+                        <div className="w-1.5 h-px bg-on-surface-variant" />
+                        <div className="w-1.5 h-px bg-on-surface-variant" />
+                      </div>
+                      <span className="font-mono text-xs font-black uppercase text-primary tracking-wide">
+                        {shop.name}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 select-none">
+                      {shop.isInputShop && (
+                        <span className="bg-emerald-500/10 text-emerald-400 font-bold font-sans text-[8px] px-1.5 py-0.5 rounded border border-emerald-500/20">
+                          IN
+                        </span>
+                      )}
+                      {shop.isOutputShop && (
+                        <span className="bg-sky-500/10 text-sky-400 font-bold font-sans text-[8px] px-1.5 py-0.5 rounded border border-sky-500/15">
+                          OUT
+                        </span>
+                      )}
+                      <span className="font-mono text-[8px] text-on-surface-variant font-bold opacity-50 tracking-wide">
+                        ID: {shop.id}
+                      </span>
+                    </div>
+                  </header>
+
+                  {/* Sequential Stations internal list layout */}
+                  <div className="p-3 flex-1 overflow-y-auto space-y-2 text-left pb-1">
+                    {ssState?.stations.map((st, sIdx) => {
+                      const isStBusy = st.parts.length > 0;
+                      const activePart = st.parts[0];
+                      const occupancy = Math.max(0, st.parts.length - 1);
+                      const progressPct = isStBusy ? (1 - st.currentCountdown / st.cycleTime) * 100 : 0;
+
+                      const targetSuccessor = st.successor || (sIdx === (ssState?.stations?.length || 0) - 1 ? "exit" : ssState?.stations?.[sIdx + 1]?.id || "exit");
+                      const targetSuccessorName = targetSuccessor === "exit"
+                        ? (shop.isOutputShop ? "Outbound Conveyor" : "Next Shop")
+                        : (ssState?.stations?.find(station => station.id === targetSuccessor)?.name || "Next");
+
+                      return (
+                        <React.Fragment key={st.id}>
+                          <div 
+                            draggable={true}
+                            onDragStart={(e) => handleStationDragStart(e, shop.id, sIdx)}
+                            onDragOver={(e) => handleStationDragOver(e, sIdx)}
+                            onDrop={(e) => handleStationDrop(e, shop.id, sIdx)}
+                            onDragEnd={handleStationDragEnd}
+                            className={`border border-[#1f2d4d]/65 rounded-xl p-2 bg-[#10192e]/40 hover:bg-[#10192e]/70 transition-all flex flex-col gap-1.5 text-left cursor-grab active:cursor-grabbing ${
+                              draggedStationIdx === sIdx && draggedStationShopId === shop.id
+                                ? 'opacity-30 border-dashed border-primary ring-1 ring-primary/40 scale-[0.98]'
+                                : ''
+                            }`}
+                          >
+                          {/* Inner Station indicator block */}
+                          <div className="flex items-center justify-between text-[10px] font-mono select-none">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <GripVertical className="w-3 h-3 text-on-surface-variant/40 shrink-0 select-none pointer-events-none" />
+                              <span className="font-bold text-[#b4c3f1]">{st.name}</span>
+                              <span className="text-[8px] opacity-40">| T: {st.cycleTime}s</span>
+                              <span className="text-[7.5px] font-bold text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded border border-emerald-500/15" title="Routing Destination">
+                                &rarr; {
+                                  (st.successor || (sIdx === (ssState?.stations?.length || 0) - 1 ? "exit" : ssState?.stations?.[sIdx + 1]?.id || "exit")) === "exit"
+                                    ? (shop.isOutputShop ? "Conveyor" : "Next Shop")
+                                    : (ssState?.stations?.find(station => station.id === (st.successor || ssState?.stations?.[sIdx + 1]?.id))?.name || "Next")
+                                }
+                              </span>
+                            </div>
+                            <span className="text-[9px] text-[#adc6ff] font-bold">
+                              [{occupancy}/{st.bufferSize}]
+                            </span>
+                          </div>
+
+                          {/* Active part queue item */}
+                          <div className="min-h-[38px] flex items-center bg-black/25 border border-[#2d3a58]/35 rounded-lg p-1.5 relative overflow-hidden text-left">
+                            {isStBusy ? (
+                              <div className="flex items-center gap-2 w-full select-none text-left">
+                                <div className="shrink-0">
+                                  {renderClipShape(activePart.shape, activePart.color)}
+                                </div>
+                                <div className="flex-1 flex flex-col leading-none text-left">
+                                  <span className="font-mono text-[9px] font-black text-[#f1f5f9] uppercase">{activePart.id}</span>
+                                  <span className="font-mono text-[8px] opacity-55 text-on-surface-variant font-bold mt-0.5">
+                                    Remaining: {formatSecondsToHMS(Math.ceil(st.currentCountdown))}
+                                  </span>
+                                </div>
+                                {/* Percentage bar */}
+                                <div 
+                                  className="absolute bottom-0 left-0 h-0.5 bg-primary/80 transition-all duration-100 ease-linear" 
+                                  style={{ width: `${progressPct}%` }} 
+                                />
+                              </div>
+                            ) : (
+                              <span className="text-[8.5px] font-mono uppercase text-on-surface-variant/30 select-none tracking-wider block mx-auto py-1.5 text-center">
+                                EMPTY (STATION IDLE)
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Additional parts waiting in buffers queue */}
+                          {st.parts.length > 1 && (
+                            <div className="flex flex-wrap gap-1 bg-black/10 border border-outline-variant/5 p-1 rounded-lg">
+                              {st.parts.slice(1).map((qp, qIdx) => (
+                                <div 
+                                  key={`${qp.id}-${qIdx}`} 
+                                  className="bg-black/40 border border-outline-variant/15 p-0.5 px-1 rounded flex items-center gap-1 text-[7.5px] font-mono select-none text-left"
+                                  title={qp.id}
+                                >
+                                  {renderClipShape(qp.shape, qp.color)}
+                                  <span className="scale-90 text-on-surface-variant/60 font-bold">{qp.id.replace('Part #', '#')}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Visual in-shop conveyor belt showing directional travel from station to next */}
+                        <div className="flex flex-col gap-1.5 py-1.5 px-3 bg-[#0d1526]/55 border border-[rgba(31,45,77,0.4)] rounded-xl mt-1">
+                          <div className="flex items-center justify-between text-[8px] font-mono select-none text-on-surface-variant/70">
+                            <span className="font-bold flex items-center gap-1 text-primary">
+                              <span className={`inline-block w-1.5 h-1.5 rounded-full ${isSimRunning ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`}></span>
+                              CONVEYOR: {st.name} &rarr; {targetSuccessorName}
+                            </span>
+                            {isSimRunning && st.parts.length > 0 ? (
+                              <span className="text-[7.5px] font-bold text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded animate-pulse">FLOWING</span>
+                            ) : (
+                              <span className="text-[7.5px] opacity-40">READY</span>
+                            )}
+                          </div>
+                          <div className="relative h-3 bg-[#060c18] border border-[#232f4c]/70 rounded-md flex items-center overflow-hidden">
+                            <div className="absolute inset-y-0 left-0 w-1.5 bg-slate-700/60 rounded-r-sm z-10"></div>
+                            <div className="absolute inset-y-0 right-0 w-1.5 bg-slate-700/60 rounded-l-sm z-10"></div>
+                            <div className="absolute inset-0 flex items-center justify-around font-mono font-bold tracking-widest text-[8px] select-none pointer-events-none text-blue-400/50">
+                              <span className={isSimRunning && st.parts.length > 0 ? "animate-pulse" : ""}>&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;</span>
+                              <span className={isSimRunning && st.parts.length > 0 ? "animate-pulse" : ""}>&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;</span>
+                            </div>
+                          </div>
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+                  </div>
+
+                  {/* Card Bottom Statistics footer */}
+                  <footer className="p-2 border-t border-outline-variant/35 bg-[#101b33] flex justify-between items-center text-[10px] font-mono select-none">
+                    <span className="text-on-surface-variant/70 pl-1">Delivered total:</span>
+                    <span className="font-bold text-primary pr-1 bg-black/25 p-0.5 px-2 rounded-md">
+                      {totalDone} units
+                    </span>
+                  </footer>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2 px-3 py-1 bg-surface-container rounded-full border border-outline-variant hover:border-[#adc6ff]/35 transition-colors">
-            <div className={`w-2 h-2 rounded-full ${isSimRunning ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
-            <span className="text-[9px] font-bold uppercase tracking-widest text-[#dae2fd]">
-              System Status: {isSimRunning ? 'Active' : 'Suspended'}
-            </span>
+        {/* Global bottom telemetry overlay strip */}
+        <footer className="bg-surface-container-lowest border-t border-outline-variant px-6 py-3 shrink-0 flex justify-between items-center text-left select-none z-10 font-mono text-[11px]">
+          <div className="flex gap-6">
+            <div>
+              <span className="text-on-surface-variant uppercase text-[9px] opacity-70">TOTAL CONFIGURED SHOPS</span>
+              <p className="font-black text-[#dae2fd] text-xs mt-0.5">{shops.length}</p>
+            </div>
+            <div>
+              <span className="text-on-surface-variant uppercase text-[9px] opacity-70">WORK IN PROCESS (WIP)</span>
+              <p className="font-black text-primary text-xs mt-0.5">
+                {simShops.reduce((sum, ss) => sum + ss.stations.reduce((sumSt, st) => sumSt + st.parts.length, 0), 0) + flyingParts.length}
+              </p>
+            </div>
+            <div>
+              <span className="text-on-surface-variant uppercase text-[9px] opacity-70">TOTAL CYCLE TIME</span>
+              <p className="font-black text-[#56eb9f] text-xs mt-0.5">{totalCycleTime}s</p>
+            </div>
+            <div>
+              <span className="text-on-surface-variant uppercase text-[9px] opacity-70">OUTBOUND PARTS</span>
+              <p className="font-black text-orange-400 text-xs mt-0.5">{conveyorExitCount}</p>
+            </div>
+            <div>
+              <span className="text-on-surface-variant uppercase text-[9px] opacity-70">AVG PART PRODUCED</span>
+              <p className="font-black text-rose-400 text-xs mt-0.5">
+                {avgPartProduced} sec/part
+              </p>
+            </div>
           </div>
 
-          <button 
-            type="button" 
-            onClick={() => setIsSimRunning(!isSimRunning)}
-            className="bg-primary/10 hover:bg-[#adc6ff]/20 border border-[#adc6ff]/35 text-primary rounded px-4 py-1.5 text-[9px] uppercase tracking-wider font-bold inline-flex items-center gap-2 transition-all cursor-pointer"
-          >
-            {isSimRunning ? (
-              <>
-                <Pause className="w-3 h-3 fill-current" />
-                <span>STOP SIM</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-3 h-3 fill-current" />
-                <span>START SIM</span>
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-bold block sm:inline">SIMULATOR CONTROLS:</span>
+              
+              {/* Reset System State - Clears all simulation data, pieces, conveyor exit counts, and backpressures */}
+              <button
+                type="button"
+                onClick={handleClearAllSimData}
+                className="p-2 gap-1 px-3 bg-[#1b2640] hover:bg-rose-500/20 text-[#adc6ff] hover:text-rose-400 border border-[#2d3a58]/80 hover:border-rose-500 rounded-lg flex items-center justify-center transition-all cursor-pointer font-mono text-[9px] uppercase font-bold"
+                title="Reset simulation layout, parts queue, and elapsed time to absolute zero"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset System State</span>
+              </button>
+            </div>
 
-          <button 
-            type="button" 
-            onClick={() => setShowTimerPopup(!showTimerPopup)}
-            className="bg-[#c2e7ff]/10 hover:bg-[#c2e7ff]/20 border border-[#c2e7ff]/30 text-primary-container rounded px-4 py-1.5 text-[9px] uppercase tracking-wider font-bold inline-flex items-center gap-2 transition-all cursor-pointer"
-          >
-            {showTimerPopup ? (
-              <>
-                <X className="w-3 h-3 text-red-400" />
-                <span>HIDE TIMER</span>
-              </>
-            ) : (
-              <>
-                <MonitorPlay className="w-3 h-3 text-[#adc6ff]" />
-                <span>SHOW TIMER</span>
-              </>
-            )}
-          </button>
-        </div>
-      </footer>
-      </div>
+
+
+
+          </div>
+        </footer>
+      </main>
     </div>
-  );
-}
-
-// Custom simple clock icon to dodge Lucide namespace clashes
-function ClockIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 text-on-surface-variant opacity-80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
   );
 }
