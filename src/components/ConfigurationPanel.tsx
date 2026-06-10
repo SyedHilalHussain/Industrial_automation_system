@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Sliders, LayoutGrid, Play, Plus, Minus, Info, Maximize2 } from 'lucide-react';
+import { Sliders, LayoutGrid, Play, Settings, Plus, Minus, Info, Maximize2 } from 'lucide-react';
 
 interface ConfigurationPanelProps {
   onProceed: (config: { shopCount: number; width: number; height: number; stationCount: number }) => void;
@@ -30,7 +30,7 @@ export default function ConfigurationPanel({ onProceed }: ConfigurationPanelProp
   return (
     <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full gap-8">
       {/* Stepper Header Navigation */}
-      <nav className="flex justify-center items-center gap-12 sm:gap-32" data-purpose="stepper">
+      <nav className="flex justify-center items-center gap-6 sm:gap-20" data-purpose="stepper">
         {/* Step 1: Configuration */}
         <div className="flex flex-col items-center gap-3 group">
           <div className="w-10 h-10 rounded bg-primary flex items-center justify-center text-on-surface-variant bg-opacity-95 shadow-[0_0_15px_rgba(173,198,255,0.3)] select-none">
@@ -47,7 +47,15 @@ export default function ConfigurationPanel({ onProceed }: ConfigurationPanelProp
           <span className="label-caps text-xs">Layout</span>
         </div>
 
-        {/* Step 3: Simulation */}
+        {/* Step 3: Shop Layout */}
+        <div className="flex flex-col items-center gap-3 group opacity-50">
+          <div className="w-10 h-10 rounded bg-surface-container-highest flex items-center justify-center text-on-surface-variant select-none">
+            <Settings className="w-5 h-5" />
+          </div>
+          <span className="label-caps text-xs">Shop Layout</span>
+        </div>
+
+        {/* Step 4: Simulation */}
         <div className="flex flex-col items-center gap-3 group opacity-50">
           <div className="w-10 h-10 rounded bg-surface-container-highest flex items-center justify-center text-on-surface-variant select-none">
             <Play className="w-5 h-5" />
@@ -62,7 +70,7 @@ export default function ConfigurationPanel({ onProceed }: ConfigurationPanelProp
         <section className="col-span-12 lg:col-span-6 bg-surface-container border border-outline-variant rounded-lg p-8 space-y-8" data-purpose="form-container">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
-            <h2 className="label-caps text-on-surface opacity-80 text-sm tracking-wider">Phase 01: Environment Initialization</h2>
+            <h2 className="label-caps text-on-surface opacity-80 text-sm tracking-wider">Phase 01: Environment Configuration</h2>
           </div>
 
           <div className="space-y-6">
@@ -108,7 +116,7 @@ export default function ConfigurationPanel({ onProceed }: ConfigurationPanelProp
                   </div>
                 </div>
                 <div className="relative group">
-                  <div className="absolute left-3 top-2 label-caps text-[8px] opacity-60 font-bold">Height</div>
+                  <div className="absolute left-3 top-2 label-caps text-[8px] opacity-60 font-bold">Length</div>
                   <div className="h-14 border border-outline-variant rounded bg-[#131b2e] flex items-center justify-between px-4 pt-3 focus-within:border-primary transition-all">
                     <input 
                       type="number" 
@@ -186,7 +194,7 @@ export default function ConfigurationPanel({ onProceed }: ConfigurationPanelProp
               </div>
               <div className="flex flex-col gap-1 mt-1">
                 <div className="flex justify-between font-bold">
-                  <span>HEIGHT:</span>
+                  <span>LENGTH:</span>
                   <span className="text-primary font-extrabold">{height}m / 100m</span>
                 </div>
                 <div className="w-full bg-black/40 h-1.5 rounded overflow-hidden border border-outline-variant/20">

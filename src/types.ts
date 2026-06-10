@@ -3,6 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export interface StationTopology {
+  id: string; // e.g. "1-1"
+  name: string; // e.g. "Station 1"
+  partsCount: number; // initial parts count in this station
+  bufferSize: number; // buffer capacity
+  cycleTime: number; // cycle time in seconds
+  successor?: string; // target station ID or "exit"
+}
+
 export interface ShopTopology {
   id: number;
   name: string;
@@ -18,6 +27,10 @@ export interface ShopTopology {
   posY: number;
   widthPx: number;
   heightPx: number;
+  stationsData?: StationTopology[];
+  isInputShop?: boolean;
+  isOutputShop?: boolean;
+  intakePartsCount?: number;
 }
 
 export interface PartFlowItem {
