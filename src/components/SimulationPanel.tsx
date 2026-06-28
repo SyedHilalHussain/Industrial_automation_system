@@ -40,11 +40,7 @@ interface FlyingPart {
   id: string;
   shape: 'pentagon' | 'heart' | 'square' | 'triangle' | 'diamond' | 'oval';
   color: string;
-<<<<<<< HEAD
-  fromId: number;
-=======
   fromId: number | string;
->>>>>>> 7746fa9 (Basic Version)
   toId: number | string;
   fromStationId?: string;
   progress: number; // 0 to 100
@@ -69,18 +65,12 @@ export default function SimulationPanel({
 
   // Dynamic dimension helpers
   const getShopWidthPx = (s: ShopTopology) => {
-<<<<<<< HEAD
-=======
     if (s.widthPx) return s.widthPx;
->>>>>>> 7746fa9 (Basic Version)
     const baseWidth = s.width || 30;
     return Math.max(180, Math.min(480, Math.round((baseWidth / 30) * 288)));
   };
   const getShopHeightPx = (s: ShopTopology) => {
-<<<<<<< HEAD
-=======
     if (s.heightPx) return s.heightPx;
->>>>>>> 7746fa9 (Basic Version)
     const count = s.stations || 3;
     const baseHeight = 115 + count * 82;
     const heightFactor = s.height ? (s.height / 30) : 1;
@@ -152,8 +142,6 @@ export default function SimulationPanel({
     };
   }, [isDraggingPopup]);
 
-<<<<<<< HEAD
-=======
   // Resizing shop card states and helper
   const [resizingShopId, setResizingShopId] = useState<number | null>(null);
   const resizeStartRef = useRef({ width: 0, height: 0, x: 0, y: 0 });
@@ -236,7 +224,6 @@ export default function SimulationPanel({
     return s.heightPx || (115 + (s.stations || 3) * 82);
   };
 
->>>>>>> 7746fa9 (Basic Version)
   const handlePopupMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return;
     setIsDraggingPopup(true);
@@ -268,16 +255,10 @@ export default function SimulationPanel({
     partsReleasedCount: number;
     intakeQueue: PartFlowItem[];
     conveyorExitCount: number;
-<<<<<<< HEAD
-  }>({ simShops: [], flyingParts: [], processedCounts: {}, partsReleasedCount: 0, intakeQueue: [], conveyorExitCount: 0 });
-
-  const { simShops, flyingParts, processedCounts, partsReleasedCount, intakeQueue, conveyorExitCount } = simState;
-=======
     intakeRoundRobinIndex: number;
   }>({ simShops: [], flyingParts: [], processedCounts: {}, partsReleasedCount: 0, intakeQueue: [], conveyorExitCount: 0, intakeRoundRobinIndex: 0 });
 
   const { simShops, flyingParts, processedCounts, partsReleasedCount, intakeQueue, conveyorExitCount, intakeRoundRobinIndex } = simState;
->>>>>>> 7746fa9 (Basic Version)
 
   const [totalCycleTime, setTotalCycleTime] = useState<number>(0);
   const [avgPartProduced, setAvgPartProduced] = useState<string>("0.0");
@@ -507,15 +488,9 @@ export default function SimulationPanel({
         ...ss,
         stations: ss.stations.map(st => ({
           ...st,
-<<<<<<< HEAD
-          parts: st.parts.length > 0 ? st.parts : [],
-          currentCountdown: st.cycleTime,
-          partsExitedCount: 0
-=======
           parts: st.parts, // Keep the parts in the stations (soft reset)
           currentCountdown: st.cycleTime, // Reset countdown back to cycleTime
           partsExitedCount: 0 // Reset station level exited count
->>>>>>> 7746fa9 (Basic Version)
         }))
       }));
 
@@ -523,23 +498,11 @@ export default function SimulationPanel({
       const limit = inShop?.intakePartsCount ?? 15;
       const finalQueue = prev.intakeQueue.length > 0 
         ? prev.intakeQueue 
-<<<<<<< HEAD
-        : Array.from({ length: limit }).map(() => generatePart());
-=======
         : Array.from({ length: limit }).map(() => generatePart()); // Keep existing or create fresh if empty
->>>>>>> 7746fa9 (Basic Version)
 
       return {
         ...prev,
         simShops: resetShops,
-<<<<<<< HEAD
-        flyingParts: prev.flyingParts,
-        intakeQueue: finalQueue
-      };
-    });
-    setIsSimRunning(true);
-    setSysNotice('Simulation started and all station timer select loops reset successfully.');
-=======
         flyingParts: prev.flyingParts, // Keep the active flying parts so everything kind of continues
         intakeQueue: finalQueue,
         conveyorExitCount: prev.conveyorExitCount, // Outbound parts count shouldn't reset ever
@@ -548,7 +511,6 @@ export default function SimulationPanel({
     });
     setIsSimRunning(true);
     setSysNotice('Simulation soft reset: clock restarted, active parts preserved.');
->>>>>>> 7746fa9 (Basic Version)
     setTimeout(() => setSysNotice(null), 3500);
   };
 
@@ -634,25 +596,11 @@ export default function SimulationPanel({
         const newFlyingParts: FlyingPart[] = [];
         const nextProcessed = { ...prev.processedCounts };
 
-<<<<<<< HEAD
-        // Auto-feed waiting intake parts into first station buffer of the input shop
-=======
         // Auto-feed waiting intake parts into intake stations of the input shop
->>>>>>> 7746fa9 (Basic Version)
         const inShopSim = nextSimShops.find(ss => {
           const orig = shops.find(o => o.id === ss.id);
           return orig?.isInputShop;
         });
-<<<<<<< HEAD
-        if (inShopSim && nextIntakeQueue.length > 0) {
-          const firstSt = inShopSim.stations[0];
-          if (firstSt) {
-            const flyingToFirst = prev.flyingParts.filter(fp => fp.toId === firstSt.id).length + newFlyingParts.filter(fp => fp.toId === firstSt.id).length;
-            while (firstSt && firstSt.parts.length + flyingToFirst < firstSt.bufferSize + 1 && nextIntakeQueue.length > 0) {
-              const nextPart = nextIntakeQueue.shift();
-              if (nextPart) {
-                firstSt.parts.push(nextPart);
-=======
 
         let nextRoundRobinIdx = prev.intakeRoundRobinIndex ?? 0;
 
@@ -706,7 +654,6 @@ export default function SimulationPanel({
               } else {
                 // Alternating station is full, wait for it to be processed! This enforces alternating order strictly.
                 canFeederContinue = false;
->>>>>>> 7746fa9 (Basic Version)
               }
             }
           }
@@ -932,12 +879,8 @@ export default function SimulationPanel({
           flyingParts: [...activeFlyingParts, ...newFlyingParts],
           processedCounts: nextProcessed,
           intakeQueue: nextIntakeQueue,
-<<<<<<< HEAD
-          conveyorExitCount: prev.conveyorExitCount + newConveyorExits
-=======
           conveyorExitCount: prev.conveyorExitCount + newConveyorExits,
           intakeRoundRobinIndex: nextRoundRobinIdx
->>>>>>> 7746fa9 (Basic Version)
         };
       });
     }, 100);
@@ -1035,8 +978,6 @@ export default function SimulationPanel({
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
-<<<<<<< HEAD
-=======
     if (resizingShopId !== null) {
       const id = resizingShopId;
       const shop = shops.find(s => s.id === id);
@@ -1053,7 +994,6 @@ export default function SimulationPanel({
       return;
     }
 
->>>>>>> 7746fa9 (Basic Version)
     if (isDraggingStationRef.current !== null && isDraggingStationParentShopIdRef.current !== null) {
       const stationId = isDraggingStationRef.current;
       const shopId = isDraggingStationParentShopIdRef.current;
@@ -1103,10 +1043,7 @@ export default function SimulationPanel({
     isDraggingCardRef.current = null;
     isDraggingStationRef.current = null;
     isDraggingStationParentShopIdRef.current = null;
-<<<<<<< HEAD
-=======
     setResizingShopId(null);
->>>>>>> 7746fa9 (Basic Version)
   };
 
   const handleCardDragStart = (e: React.MouseEvent, id: number, currentX: number, currentY: number) => {
@@ -1973,12 +1910,6 @@ export default function SimulationPanel({
 
               if (isSimpleView) {
                 // Determine the current positions of shops and stations dynamically
-<<<<<<< HEAD
-                const shop = shops.find(s => s.id === fp.fromId);
-                const headerHeight = 53;
-
-                if (isStationTransfer && fp.fromStationId) {
-=======
                 const isFromImport = fp.fromId === 'import_conveyor';
                 const shop = isFromImport ? shops.find(s => s.isInputShop) : shops.find(s => s.id === fp.fromId);
                 const headerHeight = 53;
@@ -1992,7 +1923,6 @@ export default function SimulationPanel({
                     endY = shop.posY + headerHeight + targetStPos.y + 37.5;
                   }
                 } else if (isStationTransfer && fp.fromStationId) {
->>>>>>> 7746fa9 (Basic Version)
                   // Moving station-to-station in current shop
                   if (shop) {
                     const sourceStPos = stationPositions[fp.fromStationId] || getDefaultStationPos(fp.fromStationId, fp.fromId);
@@ -2041,11 +1971,6 @@ export default function SimulationPanel({
                 currentX = startX + (endX - startX) * (fp.progress / 100);
                 currentY = startY;
               } else if (isStationTransfer) {
-<<<<<<< HEAD
-                const t = fp.progress / 100;
-                currentX = startX + (endX - startX) * t;
-                currentY = startY + (endY - startY) * t;
-=======
                 if (isSimpleView && fp.fromStationId && typeof fp.fromId === 'number') {
                   const mergePt = getMergePointForStationSimple(fp.fromStationId, fp.fromId);
                   if (mergePt) {
@@ -2079,7 +2004,6 @@ export default function SimulationPanel({
                   currentX = startX + (endX - startX) * t;
                   currentY = startY + (endY - startY) * t;
                 }
->>>>>>> 7746fa9 (Basic Version)
               } else {
                 const cy1 = startY + (endY - startY) / 2;
                 const cy2 = startY + (endY - startY) / 2;
@@ -2090,11 +2014,7 @@ export default function SimulationPanel({
               }
 
               const isOnOutbound = fp.toId === 'conveyor' || fp.toId === 'outbound_belt';
-<<<<<<< HEAD
-              const scaleClass = isSimpleView ? (isOnOutbound ? 'scale-110' : 'scale-[0.55]') : 'scale-110';
-=======
               const scaleClass = isSimpleView ? (isOnOutbound ? 'scale-110' : 'scale-[0.5]') : 'scale-110';
->>>>>>> 7746fa9 (Basic Version)
 
               return (
                 <div
@@ -2208,156 +2128,6 @@ export default function SimulationPanel({
                             }
                           }
                         `}</style>
-<<<<<<< HEAD
-                        {ssState?.stations.map((st, sIdx) => {
-                          const currentPos = stationPositions[st.id] || getDefaultStationPos(st.id, shop.id);
-                          // Center of 110x75 box: startX = left + 55, startY = top + 37.5
-                          const startX = currentPos.x + 55;
-                          const startY = currentPos.y + 37.5;
-
-                          const targetSuccessor = st.successor || (sIdx === (ssState?.stations?.length || 0) - 1 ? "exit" : ssState?.stations?.[sIdx + 1]?.id || "exit");
-                          const isFlowing = isSimRunning && st.parts.length > 0;
-
-                          if (targetSuccessor === "exit") {
-                            // Connect to the outer entry/exit conveyor point of the shop card body
-                            const exitX = getShopWidthPx(shop) / 2;
-                            const headerHeight = 53;
-                            const exitY = shop.isOutputShop ? -23 : getShopHeightPx(shop) - 20 - headerHeight;
-
-                            const dx = exitX - startX;
-                            const dy = exitY - startY;
-                            const dist = Math.sqrt(dx * dx + dy * dy);
-
-                            let finalStartX = startX;
-                            let finalStartY = startY;
-                            let finalEndX = exitX;
-                            let finalEndY = exitY;
-
-                            if (dist > 50) {
-                              const ux = dx / dist;
-                              const uy = dy / dist;
-
-                              // Clip to 110x75 box: boundaries at dx=55, dy=37.5
-                              const tX = ux !== 0 ? 55 / Math.abs(ux) : Infinity;
-                              const tY = uy !== 0 ? 37.5 / Math.abs(uy) : Infinity;
-                              const tStart = Math.min(tX, tY);
-
-                              finalStartX = startX + ux * (tStart + 4);
-                              finalStartY = startY + uy * (tStart + 4);
-                            }
-
-                            return (
-                              <g key={`flow-exit-${st.id}-${shop.id}`}>
-                                {/* Layer 1: Heavy Conveyor Frame Base (outer metal border highlight) */}
-                                <path
-                                  d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
-                                  stroke="#1e293b"
-                                  strokeWidth="7"
-                                  strokeLinecap="round"
-                                  fill="none"
-                                  opacity="0.9"
-                                />
-                                {/* Layer 2: Inner Conveyor Belt Beltway Bed (the track itself) */}
-                                <path
-                                  d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
-                                  stroke="#0b0f19"
-                                  strokeWidth="5"
-                                  strokeLinecap="round"
-                                  fill="none"
-                                />
-                                {/* Layer 3: Static Roller Slat Lines across the track structure */}
-                                <path
-                                  d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
-                                  stroke="#475569"
-                                  strokeWidth="3.5"
-                                  strokeDasharray="2 5"
-                                  fill="none"
-                                  opacity="0.25"
-                                />
-                                {/* Layer 4: Active rollers movement animation representing traction slats rotating */}
-                                <path
-                                  d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
-                                  stroke="#2a3042"
-                                  strokeWidth="3.5"
-                                  strokeDasharray="5 10"
-                                  fill="none"
-                                  opacity="0.7"
-                                  style={{
-                                    strokeDashoffset: isSimRunning ? `${simulatedElapsed * 12}px` : '0px'
-                                  }}
-                                />
-                                {/* Layer 5: Glowing directional conveyor flow (neon guide indicating active stream) */}
-                                <path
-                                  d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
-                                  stroke={isFlowing ? "#10b981" : "#38bdf8"}
-                                  strokeWidth="1.8"
-                                  fill="none"
-                                  opacity="0.75"
-                                  strokeDasharray="5 6"
-                                  style={{
-                                    animation: isFlowing ? 'stroke-flow 1.2s linear infinite' : 'none'
-                                  }}
-                                />
-                              </g>
-                            );
-                          }
-
-                          const succStation = ssState?.stations.find(station => station.id === targetSuccessor);
-                          if (succStation) {
-                            const succPos = stationPositions[succStation.id] || getDefaultStationPos(succStation.id, shop.id);
-                            const endX = succPos.x + 55;
-                            const endY = succPos.y + 37.5;
-
-                            const dx = endX - startX;
-                            const dy = endY - startY;
-                            const dist = Math.sqrt(dx * dx + dy * dy);
-
-                            let finalStartX = startX;
-                            let finalStartY = startY;
-                            let finalEndX = endX;
-                            let finalEndY = endY;
-
-                            if (dist > 70) {
-                              const ux = dx / dist;
-                              const uy = dy / dist;
-
-                              // Clip to source box (110x75)
-                              const tX1 = ux !== 0 ? 55 / Math.abs(ux) : Infinity;
-                              const tY1 = uy !== 0 ? 37.5 / Math.abs(uy) : Infinity;
-                              const tStart = Math.min(tX1, tY1);
-
-                              finalStartX = startX + ux * (tStart + 4);
-                              finalStartY = startY + uy * (tStart + 4);
-
-                              // Clip to target box (110x75)
-                              const tX2 = ux !== 0 ? 55 / Math.abs(-ux) : Infinity;
-                              const tY2 = uy !== 0 ? 37.5 / Math.abs(-uy) : Infinity;
-                              const tEnd = Math.min(tX2, tY2);
-
-                              finalEndX = endX - ux * (tEnd + 10);
-                              finalEndY = endY - uy * (tEnd + 10);
-                            }
-
-                            return (
-                              <g key={`flow-succ-${st.id}-${succStation.id}`}>
-                                <path
-                                  d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
-                                  stroke={isFlowing ? "#10b981" : "#38bdf8"}
-                                  strokeWidth="2.5"
-                                  fill="none"
-                                  opacity="0.7"
-                                  strokeDasharray="6 4"
-                                  style={{
-                                    animation: isFlowing ? 'stroke-flow 1.2s linear infinite' : 'none'
-                                  }}
-                                  markerEnd={isFlowing ? `url(#arrow-flowing-${shop.id})` : `url(#arrow-idle-${shop.id})`}
-                                />
-                              </g>
-                            );
-                          }
-                          return null;
-                        })}
-=======
                         {(() => {
                           if (!ssState?.stations) return null;
 
@@ -2784,7 +2554,6 @@ export default function SimulationPanel({
                             return elements;
                           });
                         })()}
->>>>>>> 7746fa9 (Basic Version)
                       </svg>
 
                       {ssState?.stations.map((st) => {
@@ -3010,15 +2779,6 @@ export default function SimulationPanel({
 
                   {/* Card Bottom Statistics footer */}
                   {!isSimpleView && (
-<<<<<<< HEAD
-                    <footer className="p-2 border-t border-outline-variant/35 bg-[#101b33] flex justify-between items-center text-[10px] font-mono select-none">
-                      <span className="text-on-surface-variant/70 pl-1">Delivered total:</span>
-                      <span className="font-bold text-primary pr-1 bg-black/25 p-0.5 px-2 rounded-md">
-                        {totalDone} units
-                      </span>
-                    </footer>
-                  )}
-=======
                     <footer className="p-2.5 border-t border-[#2d3a58]/40 bg-[#101b33] flex justify-between items-start text-[10px] font-mono select-none relative pb-10">
                       <div className="flex flex-col gap-1 items-start pl-1 flex-1">
                         <div className="flex flex-col gap-0.5">
@@ -3059,7 +2819,6 @@ export default function SimulationPanel({
                       <span className="w-[3px] h-[3px] rounded-full bg-white opacity-95"></span>
                     </span>
                   </div>
->>>>>>> 7746fa9 (Basic Version)
                 </div>
               );
             })}

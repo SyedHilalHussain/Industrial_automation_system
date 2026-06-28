@@ -15,14 +15,11 @@ const ensureSingleExitForShop = (stations: StationTopology[], shopId: number): S
   if (!stations || stations.length === 0) return [];
 
   return stations.map((st, idx) => {
-<<<<<<< HEAD
-=======
     // If successor is already defined and points to a valid station in this shop or 'exit', preserve it!
     const isValidSuccessor = st.successor && (st.successor === 'exit' || stations.some(s => s.id === st.successor));
     if (isValidSuccessor) {
       return st;
     }
->>>>>>> 7746fa9 (Basic Version)
     const isLast = idx === stations.length - 1;
     return {
       ...st,
