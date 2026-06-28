@@ -40,7 +40,11 @@ interface FlyingPart {
   id: string;
   shape: 'pentagon' | 'heart' | 'square' | 'triangle' | 'diamond' | 'oval';
   color: string;
+<<<<<<< HEAD
   fromId: number;
+=======
+  fromId: number | string;
+>>>>>>> 7746fa9 (Basic Version)
   toId: number | string;
   fromStationId?: string;
   progress: number; // 0 to 100
@@ -65,10 +69,18 @@ export default function SimulationPanel({
 
   // Dynamic dimension helpers
   const getShopWidthPx = (s: ShopTopology) => {
+<<<<<<< HEAD
+=======
+    if (s.widthPx) return s.widthPx;
+>>>>>>> 7746fa9 (Basic Version)
     const baseWidth = s.width || 30;
     return Math.max(180, Math.min(480, Math.round((baseWidth / 30) * 288)));
   };
   const getShopHeightPx = (s: ShopTopology) => {
+<<<<<<< HEAD
+=======
+    if (s.heightPx) return s.heightPx;
+>>>>>>> 7746fa9 (Basic Version)
     const count = s.stations || 3;
     const baseHeight = 115 + count * 82;
     const heightFactor = s.height ? (s.height / 30) : 1;
@@ -140,6 +152,91 @@ export default function SimulationPanel({
     };
   }, [isDraggingPopup]);
 
+<<<<<<< HEAD
+=======
+  // Resizing shop card states and helper
+  const [resizingShopId, setResizingShopId] = useState<number | null>(null);
+  const resizeStartRef = useRef({ width: 0, height: 0, x: 0, y: 0 });
+
+  const handleResizeStart = (e: React.MouseEvent, shop: ShopTopology) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setResizingShopId(shop.id);
+    resizeStartRef.current = {
+      width: getShopWidthPx(shop),
+      height: getShopHeightPx(shop),
+      x: e.clientX,
+      y: e.clientY
+    };
+  };
+
+  const getMergePointForStationSimple = (stationId: string, shopId: number) => {
+    const shopObj = shops.find(s => s.id === shopId);
+    if (!shopObj) return null;
+    const ssState = simShops.find(ss => ss.id === shopId);
+    if (!ssState) return null;
+    const stObj = ssState.stations.find(s => s.id === stationId);
+    if (!stObj) return null;
+
+    const sIdx = ssState.stations.findIndex(s => s.id === stationId);
+    const targetSuccessor = stObj.successor || (sIdx === ssState.stations.length - 1 ? "exit" : ssState.stations[sIdx + 1]?.id || "exit");
+
+    // Find all stations targeting this same target
+    const targetSources = ssState.stations.filter(s => {
+      const idx = ssState.stations.findIndex(item => item.id === s.id);
+      const succ = s.successor || (idx === ssState.stations.length - 1 ? "exit" : ssState.stations[idx + 1]?.id || "exit");
+      return succ === targetSuccessor;
+    });
+
+    if (targetSources.length <= 1) {
+      return null; // No merge point needed
+    }
+
+    // Determine target point (endX, endY) inside the shop card coordinates
+    let endX = 0;
+    let endY = 0;
+    if (targetSuccessor === "exit") {
+      endX = getMergePointWidth(shopObj);
+      const headerHeight = 53;
+      endY = shopObj.isOutputShop ? -23 : getMergePointHeight(shopObj) - 20 - headerHeight;
+    } else {
+      const succPos = stationPositions[targetSuccessor] || getDefaultStationPos(targetSuccessor, shopId);
+      endX = succPos.x + 55;
+      endY = succPos.y + 37.5;
+    }
+
+    // Average starting point of all source stations
+    const avgStartX = targetSources.reduce((sum, item) => {
+      const pos = stationPositions[item.id] || getDefaultStationPos(item.id, shopId);
+      return sum + pos.x + 55;
+    }, 0) / targetSources.length;
+    const avgStartY = targetSources.reduce((sum, item) => {
+      const pos = stationPositions[item.id] || getDefaultStationPos(item.id, shopId);
+      return sum + pos.y + 37.5;
+    }, 0) / targetSources.length;
+
+    const dx = endX - avgStartX;
+    const dy = endY - avgStartY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const ux = dist > 0 ? dx / dist : 0;
+    const uy = dist > 0 ? dy / dist : -1;
+
+    // Shift merge point 45px before the target inside the shop card coordinates
+    return {
+      x: endX - ux * 45,
+      y: endY - uy * 45
+    };
+  };
+
+  const getMergePointWidth = (s: ShopTopology) => {
+    return s.widthPx || 288;
+  };
+
+  const getMergePointHeight = (s: ShopTopology) => {
+    return s.heightPx || (115 + (s.stations || 3) * 82);
+  };
+
+>>>>>>> 7746fa9 (Basic Version)
   const handlePopupMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return;
     setIsDraggingPopup(true);
@@ -171,9 +268,16 @@ export default function SimulationPanel({
     partsReleasedCount: number;
     intakeQueue: PartFlowItem[];
     conveyorExitCount: number;
+<<<<<<< HEAD
   }>({ simShops: [], flyingParts: [], processedCounts: {}, partsReleasedCount: 0, intakeQueue: [], conveyorExitCount: 0 });
 
   const { simShops, flyingParts, processedCounts, partsReleasedCount, intakeQueue, conveyorExitCount } = simState;
+=======
+    intakeRoundRobinIndex: number;
+  }>({ simShops: [], flyingParts: [], processedCounts: {}, partsReleasedCount: 0, intakeQueue: [], conveyorExitCount: 0, intakeRoundRobinIndex: 0 });
+
+  const { simShops, flyingParts, processedCounts, partsReleasedCount, intakeQueue, conveyorExitCount, intakeRoundRobinIndex } = simState;
+>>>>>>> 7746fa9 (Basic Version)
 
   const [totalCycleTime, setTotalCycleTime] = useState<number>(0);
   const [avgPartProduced, setAvgPartProduced] = useState<string>("0.0");
@@ -403,9 +507,15 @@ export default function SimulationPanel({
         ...ss,
         stations: ss.stations.map(st => ({
           ...st,
+<<<<<<< HEAD
           parts: st.parts.length > 0 ? st.parts : [],
           currentCountdown: st.cycleTime,
           partsExitedCount: 0
+=======
+          parts: st.parts, // Keep the parts in the stations (soft reset)
+          currentCountdown: st.cycleTime, // Reset countdown back to cycleTime
+          partsExitedCount: 0 // Reset station level exited count
+>>>>>>> 7746fa9 (Basic Version)
         }))
       }));
 
@@ -413,17 +523,32 @@ export default function SimulationPanel({
       const limit = inShop?.intakePartsCount ?? 15;
       const finalQueue = prev.intakeQueue.length > 0 
         ? prev.intakeQueue 
+<<<<<<< HEAD
         : Array.from({ length: limit }).map(() => generatePart());
+=======
+        : Array.from({ length: limit }).map(() => generatePart()); // Keep existing or create fresh if empty
+>>>>>>> 7746fa9 (Basic Version)
 
       return {
         ...prev,
         simShops: resetShops,
+<<<<<<< HEAD
         flyingParts: prev.flyingParts,
         intakeQueue: finalQueue
       };
     });
     setIsSimRunning(true);
     setSysNotice('Simulation started and all station timer select loops reset successfully.');
+=======
+        flyingParts: prev.flyingParts, // Keep the active flying parts so everything kind of continues
+        intakeQueue: finalQueue,
+        conveyorExitCount: prev.conveyorExitCount, // Outbound parts count shouldn't reset ever
+        processedCounts: {} // Reset processed counts
+      };
+    });
+    setIsSimRunning(true);
+    setSysNotice('Simulation soft reset: clock restarted, active parts preserved.');
+>>>>>>> 7746fa9 (Basic Version)
     setTimeout(() => setSysNotice(null), 3500);
   };
 
@@ -509,11 +634,16 @@ export default function SimulationPanel({
         const newFlyingParts: FlyingPart[] = [];
         const nextProcessed = { ...prev.processedCounts };
 
+<<<<<<< HEAD
         // Auto-feed waiting intake parts into first station buffer of the input shop
+=======
+        // Auto-feed waiting intake parts into intake stations of the input shop
+>>>>>>> 7746fa9 (Basic Version)
         const inShopSim = nextSimShops.find(ss => {
           const orig = shops.find(o => o.id === ss.id);
           return orig?.isInputShop;
         });
+<<<<<<< HEAD
         if (inShopSim && nextIntakeQueue.length > 0) {
           const firstSt = inShopSim.stations[0];
           if (firstSt) {
@@ -522,6 +652,61 @@ export default function SimulationPanel({
               const nextPart = nextIntakeQueue.shift();
               if (nextPart) {
                 firstSt.parts.push(nextPart);
+=======
+
+        let nextRoundRobinIdx = prev.intakeRoundRobinIndex ?? 0;
+
+        if (inShopSim && nextIntakeQueue.length > 0) {
+          // Identify stations in the input shop that do not have any internal predecessor
+          const intakeStations = inShopSim.stations.filter((st, sIdx) => {
+            const hasPredecessor = inShopSim.stations.some((other, oIdx) => {
+              const succ = other.successor || (oIdx === inShopSim.stations.length - 1 ? "exit" : inShopSim.stations[oIdx + 1]?.id || "exit");
+              return succ === st.id;
+            });
+            return !hasPredecessor;
+          });
+
+          if (intakeStations.length > 0) {
+            // Check if the current target in alternating order has space
+            let canFeederContinue = true;
+            while (canFeederContinue && nextIntakeQueue.length > 0) {
+              const targetSt = intakeStations[nextRoundRobinIdx % intakeStations.length];
+              const flyingToTarget = prev.flyingParts.filter(fp => fp.toId === targetSt.id).length + newFlyingParts.filter(fp => fp.toId === targetSt.id).length;
+              if (targetSt.parts.length + flyingToTarget < targetSt.bufferSize + 1) {
+                const nextPart = nextIntakeQueue.shift();
+                if (nextPart) {
+                  const originalInShop = shops.find(s => s.id === inShopSim.id);
+                  if (originalInShop) {
+                    const currentCoords = stationPositions[targetSt.id] || getDefaultStationPos(targetSt.id, inShopSim.id);
+                    // Absolute start pos on conveyor belt line
+                    const startX = originalInShop.posX - 38;
+                    const startY = originalInShop.posY + 24;
+                    // Absolute destination pos on station
+                    const headerHeight = 53;
+                    const endX = originalInShop.posX + currentCoords.x;
+                    const endY = originalInShop.posY + headerHeight + currentCoords.y + 37.5;
+
+                    newFlyingParts.push({
+                      ...nextPart,
+                      fromId: 'import_conveyor',
+                      toId: targetSt.id,
+                      fromStationId: 'import',
+                      progress: 0,
+                      startX,
+                      startY,
+                      endX,
+                      endY
+                    });
+                    
+                    nextRoundRobinIdx++;
+                  } else {
+                    canFeederContinue = false;
+                  }
+                }
+              } else {
+                // Alternating station is full, wait for it to be processed! This enforces alternating order strictly.
+                canFeederContinue = false;
+>>>>>>> 7746fa9 (Basic Version)
               }
             }
           }
@@ -747,7 +932,12 @@ export default function SimulationPanel({
           flyingParts: [...activeFlyingParts, ...newFlyingParts],
           processedCounts: nextProcessed,
           intakeQueue: nextIntakeQueue,
+<<<<<<< HEAD
           conveyorExitCount: prev.conveyorExitCount + newConveyorExits
+=======
+          conveyorExitCount: prev.conveyorExitCount + newConveyorExits,
+          intakeRoundRobinIndex: nextRoundRobinIdx
+>>>>>>> 7746fa9 (Basic Version)
         };
       });
     }, 100);
@@ -845,6 +1035,25 @@ export default function SimulationPanel({
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
+<<<<<<< HEAD
+=======
+    if (resizingShopId !== null) {
+      const id = resizingShopId;
+      const shop = shops.find(s => s.id === id);
+      if (shop) {
+        const dx = (e.clientX - resizeStartRef.current.x) / zoomLevel;
+        const dy = (e.clientY - resizeStartRef.current.y) / zoomLevel;
+        const newWidth = Math.max(220, Math.min(800, resizeStartRef.current.width + dx));
+        const newHeight = Math.max(240, Math.min(1000, resizeStartRef.current.height + dy));
+        onUpdateShop(id, {
+          widthPx: Math.round(newWidth),
+          heightPx: Math.round(newHeight)
+        });
+      }
+      return;
+    }
+
+>>>>>>> 7746fa9 (Basic Version)
     if (isDraggingStationRef.current !== null && isDraggingStationParentShopIdRef.current !== null) {
       const stationId = isDraggingStationRef.current;
       const shopId = isDraggingStationParentShopIdRef.current;
@@ -894,6 +1103,10 @@ export default function SimulationPanel({
     isDraggingCardRef.current = null;
     isDraggingStationRef.current = null;
     isDraggingStationParentShopIdRef.current = null;
+<<<<<<< HEAD
+=======
+    setResizingShopId(null);
+>>>>>>> 7746fa9 (Basic Version)
   };
 
   const handleCardDragStart = (e: React.MouseEvent, id: number, currentX: number, currentY: number) => {
@@ -1760,10 +1973,26 @@ export default function SimulationPanel({
 
               if (isSimpleView) {
                 // Determine the current positions of shops and stations dynamically
+<<<<<<< HEAD
                 const shop = shops.find(s => s.id === fp.fromId);
                 const headerHeight = 53;
 
                 if (isStationTransfer && fp.fromStationId) {
+=======
+                const isFromImport = fp.fromId === 'import_conveyor';
+                const shop = isFromImport ? shops.find(s => s.isInputShop) : shops.find(s => s.id === fp.fromId);
+                const headerHeight = 53;
+
+                if (isFromImport) {
+                  if (shop) {
+                    const targetStPos = stationPositions[fp.toId] || getDefaultStationPos(fp.toId as string, shop.id);
+                    startX = shop.posX - 15;
+                    startY = shop.posY + 24;
+                    endX = shop.posX + targetStPos.x;
+                    endY = shop.posY + headerHeight + targetStPos.y + 37.5;
+                  }
+                } else if (isStationTransfer && fp.fromStationId) {
+>>>>>>> 7746fa9 (Basic Version)
                   // Moving station-to-station in current shop
                   if (shop) {
                     const sourceStPos = stationPositions[fp.fromStationId] || getDefaultStationPos(fp.fromStationId, fp.fromId);
@@ -1812,9 +2041,45 @@ export default function SimulationPanel({
                 currentX = startX + (endX - startX) * (fp.progress / 100);
                 currentY = startY;
               } else if (isStationTransfer) {
+<<<<<<< HEAD
                 const t = fp.progress / 100;
                 currentX = startX + (endX - startX) * t;
                 currentY = startY + (endY - startY) * t;
+=======
+                if (isSimpleView && fp.fromStationId && typeof fp.fromId === 'number') {
+                  const mergePt = getMergePointForStationSimple(fp.fromStationId, fp.fromId);
+                  if (mergePt) {
+                    const shop = shops.find(s => s.id === fp.fromId);
+                    const headerHeight = 53;
+                    if (shop) {
+                      const mX = shop.posX + mergePt.x;
+                      const mY = shop.posY + headerHeight + mergePt.y;
+
+                      if (fp.progress < 50) {
+                        const t = fp.progress / 50;
+                        currentX = startX + (mX - startX) * t;
+                        currentY = startY + (mY - startY) * t;
+                      } else {
+                        const t = (fp.progress - 50) / 50;
+                        currentX = mX + (endX - mX) * t;
+                        currentY = mY + (endY - mY) * t;
+                      }
+                    } else {
+                      const t = fp.progress / 100;
+                      currentX = startX + (endX - startX) * t;
+                      currentY = startY + (endY - startY) * t;
+                    }
+                  } else {
+                    const t = fp.progress / 100;
+                    currentX = startX + (endX - startX) * t;
+                    currentY = startY + (endY - startY) * t;
+                  }
+                } else {
+                  const t = fp.progress / 100;
+                  currentX = startX + (endX - startX) * t;
+                  currentY = startY + (endY - startY) * t;
+                }
+>>>>>>> 7746fa9 (Basic Version)
               } else {
                 const cy1 = startY + (endY - startY) / 2;
                 const cy2 = startY + (endY - startY) / 2;
@@ -1825,7 +2090,11 @@ export default function SimulationPanel({
               }
 
               const isOnOutbound = fp.toId === 'conveyor' || fp.toId === 'outbound_belt';
+<<<<<<< HEAD
               const scaleClass = isSimpleView ? (isOnOutbound ? 'scale-110' : 'scale-[0.55]') : 'scale-110';
+=======
+              const scaleClass = isSimpleView ? (isOnOutbound ? 'scale-110' : 'scale-[0.5]') : 'scale-110';
+>>>>>>> 7746fa9 (Basic Version)
 
               return (
                 <div
@@ -1939,6 +2208,7 @@ export default function SimulationPanel({
                             }
                           }
                         `}</style>
+<<<<<<< HEAD
                         {ssState?.stations.map((st, sIdx) => {
                           const currentPos = stationPositions[st.id] || getDefaultStationPos(st.id, shop.id);
                           // Center of 110x75 box: startX = left + 55, startY = top + 37.5
@@ -2087,6 +2357,434 @@ export default function SimulationPanel({
                           }
                           return null;
                         })}
+=======
+                        {(() => {
+                          if (!ssState?.stations) return null;
+
+                          return ssState.stations.flatMap((st, sIdx) => {
+                            const currentPos = stationPositions[st.id] || getDefaultStationPos(st.id, shop.id);
+                            const startX = currentPos.x + 55;
+                            const startY = currentPos.y + 37.5;
+
+                            const targetSuccessor = st.successor || (sIdx === ssState.stations.length - 1 ? "exit" : ssState.stations[sIdx + 1]?.id || "exit");
+                            const isFlowing = isSimRunning && st.parts.length > 0;
+
+                            // Determine end targets
+                            let endX = 0;
+                            let endY = 0;
+                            const isExit = targetSuccessor === "exit";
+
+                            if (isExit) {
+                              endX = getShopWidthPx(shop) / 2;
+                              const headerHeight = 53;
+                              endY = shop.isOutputShop ? -23 : getShopHeightPx(shop) - 20 - headerHeight;
+                            } else {
+                              const succStation = ssState.stations.find(station => station.id === targetSuccessor);
+                              if (!succStation) return [];
+                              const succPos = stationPositions[succStation.id] || getDefaultStationPos(succStation.id, shop.id);
+                              endX = succPos.x + 55;
+                              endY = succPos.y + 37.5;
+                            }
+
+                            // 1. Identify if this is an import station receiving from the import conveyor
+                            const hasPredecessor = ssState.stations.some((other, oIdx) => {
+                              const succ = other.successor || (oIdx === ssState.stations.length - 1 ? "exit" : ssState.stations[oIdx + 1]?.id || "exit");
+                              return succ === st.id;
+                            });
+                            const isImportStation = shop.isInputShop && !hasPredecessor;
+
+                            const elements: React.JSX.Element[] = [];
+
+                            if (isImportStation) {
+                              const importStartX = -25;
+                              const importStartY = 24;
+                              const importEndX = currentPos.x;
+                              const importEndY = currentPos.y + 37.5;
+                              const isImportActive = isSimRunning && (flyingParts.some(fp => fp.toId === st.id && fp.fromId === 'import_conveyor') || st.parts.length > 0);
+
+                              elements.push(
+                                <g key={`flow-import-${st.id}`}>
+                                  {/* Heavy border */}
+                                  <path
+                                    d={`M ${importStartX} ${importStartY} L ${importEndX} ${importEndY}`}
+                                    stroke="#3b0764"
+                                    strokeWidth="8"
+                                    strokeLinecap="round"
+                                    fill="none"
+                                    opacity="0.85"
+                                  />
+                                  {/* Inner channel */}
+                                  <path
+                                    d={`M ${importStartX} ${importStartY} L ${importEndX} ${importEndY}`}
+                                    stroke="#0b0f19"
+                                    strokeWidth="5.5"
+                                    strokeLinecap="round"
+                                    fill="none"
+                                  />
+                                  {/* Rotating traction slots */}
+                                  <path
+                                    d={`M ${importStartX} ${importStartY} L ${importEndX} ${importEndY}`}
+                                    stroke="#c084fc"
+                                    strokeWidth="3"
+                                    strokeDasharray="4 8"
+                                    fill="none"
+                                    opacity="0.65"
+                                    style={{
+                                      strokeDashoffset: isSimRunning ? `${simulatedElapsed * 14}px` : '0px'
+                                    }}
+                                  />
+                                  {/* Glowing flow */}
+                                  <path
+                                    d={`M ${importStartX} ${importStartY} L ${importEndX} ${importEndY}`}
+                                    stroke={isImportActive ? "#d946ef" : "#8b5cf6"}
+                                    strokeWidth="2.2"
+                                    fill="none"
+                                    opacity="0.95"
+                                    strokeDasharray="5 5"
+                                    style={{
+                                      animation: isImportActive ? 'stroke-flow 0.8s linear infinite' : 'none'
+                                    }}
+                                  />
+                                </g>
+                              );
+                            }
+
+                            // Call our helper to see if this path merges
+                            const mergePt = getMergePointForStationSimple(st.id, shop.id);
+
+                            if (mergePt) {
+                              // We have a merge point!
+                              // 1. Draw the branch from the station to the merge point
+                              const dx = mergePt.x - startX;
+                              const dy = mergePt.y - startY;
+                              const dist = Math.sqrt(dx * dx + dy * dy);
+
+                              let finalStartX = startX;
+                              let finalStartY = startY;
+
+                              if (dist > 50) {
+                                const ux = dx / dist;
+                                const uy = dy / dist;
+                                const tX = ux !== 0 ? 55 / Math.abs(ux) : Infinity;
+                                const tY = uy !== 0 ? 37.5 / Math.abs(uy) : Infinity;
+                                const tStart = Math.min(tX, tY);
+
+                                finalStartX = startX + ux * (tStart + 4);
+                                finalStartY = startY + uy * (tStart + 4);
+                              }
+
+                              const finalEndX = mergePt.x;
+                              const finalEndY = mergePt.y;
+
+                              // Find all sources for this target
+                              const targetSources = ssState.stations.filter(s => {
+                                const idx = ssState.stations.findIndex(item => item.id === s.id);
+                                const succ = s.successor || (idx === ssState.stations.length - 1 ? "exit" : ssState.stations[idx + 1]?.id || "exit");
+                                return succ === targetSuccessor;
+                              });
+                              const firstInMerge = targetSources[0].id === st.id;
+                              const isAnyFlowing = targetSources.some(item => isSimRunning && item.parts.length > 0);
+
+                              elements.push(
+                                <g key={`flow-branch-${st.id}`}>
+                                  {/* Branch metal border */}
+                                  <path
+                                    d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
+                                    stroke="#1e293b"
+                                    strokeWidth="5"
+                                    strokeLinecap="round"
+                                    fill="none"
+                                    opacity="0.9"
+                                  />
+                                  {/* Branch inner track */}
+                                  <path
+                                    d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
+                                    stroke="#0b0f19"
+                                    strokeWidth="3.5"
+                                    strokeLinecap="round"
+                                    fill="none"
+                                  />
+                                  {/* Branch rolling traction */}
+                                  <path
+                                    d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
+                                    stroke="#2a3042"
+                                    strokeWidth="2.2"
+                                    strokeDasharray="4 8"
+                                    fill="none"
+                                    opacity="0.7"
+                                    style={{
+                                      strokeDashoffset: isSimRunning ? `${simulatedElapsed * 10}px` : '0px'
+                                    }}
+                                  />
+                                  {/* Branch neon flow */}
+                                  <path
+                                    d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
+                                    stroke={isFlowing ? "#10b981" : "#38bdf8"}
+                                    strokeWidth="1.5"
+                                    fill="none"
+                                    opacity="0.75"
+                                    strokeDasharray="4 5"
+                                    style={{
+                                      animation: isFlowing ? 'stroke-flow 1.2s linear infinite' : 'none'
+                                    }}
+                                  />
+
+                                  {/* 2. Draw the single merged trunk line from merge point to target (drawn only once per target group) */}
+                                  {firstInMerge && (() => {
+                                    let trunkEndX = endX;
+                                    let trunkEndY = endY;
+
+                                    if (!isExit) {
+                                      const sdx = endX - mergePt.x;
+                                      const sdy = endY - mergePt.y;
+                                      const sdist = Math.sqrt(sdx * sdx + sdy * sdy);
+                                      if (sdist > 10) {
+                                        const sux = sdx / sdist;
+                                        const suy = sdy / sdist;
+                                        const tX2 = sux !== 0 ? 55 / Math.abs(-sux) : Infinity;
+                                        const tY2 = suy !== 0 ? 37.5 / Math.abs(-suy) : Infinity;
+                                        const tEnd = Math.min(tX2, tY2);
+                                        trunkEndX = endX - sux * (tEnd + 10);
+                                        trunkEndY = endY - suy * (tEnd + 10);
+                                      }
+                                    }
+
+                                    if (isExit) {
+                                      return (
+                                        <g key={`flow-trunk-${targetSuccessor}`}>
+                                          <path
+                                            d={`M ${mergePt.x} ${mergePt.y} L ${trunkEndX} ${trunkEndY}`}
+                                            stroke="#431407"
+                                            strokeWidth="8"
+                                            strokeLinecap="round"
+                                            fill="none"
+                                            opacity="0.8"
+                                          />
+                                          <path
+                                            d={`M ${mergePt.x} ${mergePt.y} L ${trunkEndX} ${trunkEndY}`}
+                                            stroke="#0b0f19"
+                                            strokeWidth="5"
+                                            strokeLinecap="round"
+                                            fill="none"
+                                          />
+                                          <path
+                                            d={`M ${mergePt.x} ${mergePt.y} L ${trunkEndX} ${trunkEndY}`}
+                                            stroke="#2a1205"
+                                            strokeWidth="3.5"
+                                            strokeDasharray="4 8"
+                                            fill="none"
+                                            opacity="0.7"
+                                            style={{
+                                              strokeDashoffset: isSimRunning ? `${simulatedElapsed * 14}px` : '0px'
+                                            }}
+                                          />
+                                          <path
+                                            d={`M ${mergePt.x} ${mergePt.y} L ${trunkEndX} ${trunkEndY}`}
+                                            stroke={isAnyFlowing ? "#f97316" : "#fb923c"}
+                                            strokeWidth="2"
+                                            fill="none"
+                                            opacity="0.9"
+                                            strokeDasharray="5 5"
+                                            style={{
+                                              animation: isAnyFlowing ? 'stroke-flow 0.8s linear infinite' : 'none'
+                                            }}
+                                          />
+                                        </g>
+                                      );
+                                    }
+
+                                    return (
+                                      <g key={`flow-trunk-${targetSuccessor}`}>
+                                        {/* Heavy metal border */}
+                                        <path
+                                          d={`M ${mergePt.x} ${mergePt.y} L ${trunkEndX} ${trunkEndY}`}
+                                          stroke="#1e293b"
+                                          strokeWidth="7"
+                                          strokeLinecap="round"
+                                          fill="none"
+                                          opacity="0.95"
+                                        />
+                                        {/* Inner beltway */}
+                                        <path
+                                          d={`M ${mergePt.x} ${mergePt.y} L ${trunkEndX} ${trunkEndY}`}
+                                          stroke="#0b0f19"
+                                          strokeWidth="5"
+                                          strokeLinecap="round"
+                                          fill="none"
+                                        />
+                                        {/* Traction slats */}
+                                        <path
+                                          d={`M ${mergePt.x} ${mergePt.y} L ${trunkEndX} ${trunkEndY}`}
+                                          stroke="#2a3042"
+                                          strokeWidth="3.5"
+                                          strokeDasharray="5 10"
+                                          fill="none"
+                                          opacity="0.75"
+                                          style={{
+                                            strokeDashoffset: isSimRunning ? `${simulatedElapsed * 12}px` : '0px'
+                                          }}
+                                        />
+                                        {/* Neon conveyor line */}
+                                        <path
+                                          d={`M ${mergePt.x} ${mergePt.y} L ${trunkEndX} ${trunkEndY}`}
+                                          stroke={isAnyFlowing ? "#10b981" : "#38bdf8"}
+                                          strokeWidth="1.8"
+                                          fill="none"
+                                          opacity="0.85"
+                                          strokeDasharray="5 6"
+                                          style={{
+                                            animation: isAnyFlowing ? 'stroke-flow 1.2s linear infinite' : 'none'
+                                          }}
+                                          markerEnd={!isExit ? (isAnyFlowing ? `url(#arrow-flowing-${shop.id})` : `url(#arrow-idle-${shop.id})`) : undefined}
+                                        />
+                                      </g>
+                                    );
+                                  })()}
+                                </g>
+                              );
+                            } else {
+                              // Standard straight line conveyor (no merge needed)
+                              const dx = endX - startX;
+                              const dy = endY - startY;
+                              const dist = Math.sqrt(dx * dx + dy * dy);
+
+                              let finalStartX = startX;
+                              let finalStartY = startY;
+                              let finalEndX = endX;
+                              let finalEndY = endY;
+
+                              if (dist > 70) {
+                                const ux = dx / dist;
+                                const uy = dy / dist;
+
+                                // Clip to source box (110x75)
+                                const tX1 = ux !== 0 ? 55 / Math.abs(ux) : Infinity;
+                                const tY1 = uy !== 0 ? 37.5 / Math.abs(uy) : Infinity;
+                                const tStart = Math.min(tX1, tY1);
+
+                                finalStartX = startX + ux * (tStart + 4);
+                                finalStartY = startY + uy * (tStart + 4);
+
+                                // Clip to target box if not exiting
+                                if (!isExit) {
+                                  const tX2 = ux !== 0 ? 55 / Math.abs(-ux) : Infinity;
+                                  const tY2 = uy !== 0 ? 37.5 / Math.abs(-uy) : Infinity;
+                                  const tEnd = Math.min(tX2, tY2);
+
+                                  finalEndX = endX - ux * (tEnd + 10);
+                                  finalEndY = endY - uy * (tEnd + 10);
+                                }
+                              }
+
+                              if (isExit) {
+                                elements.push(
+                                  <g key={`flow-straight-exit-${st.id}`}>
+                                    {/* Heavy border */}
+                                    <path
+                                      d={`M ${finalStartX} ${finalStartY} L ${endX} ${endY}`}
+                                      stroke="#431407"
+                                      strokeWidth="8"
+                                      strokeLinecap="round"
+                                      fill="none"
+                                      opacity="0.8"
+                                    />
+                                    {/* Inner channel */}
+                                    <path
+                                      d={`M ${finalStartX} ${finalStartY} L ${endX} ${endY}`}
+                                      stroke="#0b0f19"
+                                      strokeWidth="5"
+                                      strokeLinecap="round"
+                                      fill="none"
+                                    />
+                                    {/* Roller Slats */}
+                                    <path
+                                      d={`M ${finalStartX} ${finalStartY} L ${endX} ${endY}`}
+                                      stroke="#2a1205"
+                                      strokeWidth="3.5"
+                                      strokeDasharray="4 8"
+                                      fill="none"
+                                      opacity="0.7"
+                                      style={{
+                                        strokeDashoffset: isSimRunning ? `${simulatedElapsed * 14}px` : '0px'
+                                      }}
+                                    />
+                                    {/* Glowing flow */}
+                                    <path
+                                      d={`M ${finalStartX} ${finalStartY} L ${endX} ${endY}`}
+                                      stroke={isFlowing ? "#f97316" : "#fb923c"}
+                                      strokeWidth="2"
+                                      fill="none"
+                                      opacity="0.9"
+                                      strokeDasharray="5 5"
+                                      style={{
+                                        animation: isFlowing ? 'stroke-flow 0.8s linear infinite' : 'none'
+                                      }}
+                                    />
+                                  </g>
+                                );
+                              } else {
+                                elements.push(
+                                  <g key={`flow-straight-${st.id}-${targetSuccessor}`}>
+                                    {/* Heavy metal border */}
+                                    <path
+                                      d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
+                                      stroke="#1e293b"
+                                      strokeWidth="7"
+                                      strokeLinecap="round"
+                                      fill="none"
+                                      opacity="0.9"
+                                    />
+                                    {/* Inner beltway */}
+                                    <path
+                                      d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
+                                      stroke="#0b0f19"
+                                      strokeWidth="5"
+                                      strokeLinecap="round"
+                                      fill="none"
+                                    />
+                                    {/* Static Roller Slat Lines */}
+                                    <path
+                                      d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
+                                      stroke="#475569"
+                                      strokeWidth="3.5"
+                                      strokeDasharray="2 5"
+                                      fill="none"
+                                      opacity="0.25"
+                                    />
+                                    {/* Active rollers */}
+                                    <path
+                                      d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
+                                      stroke="#2a3042"
+                                      strokeWidth="3.5"
+                                      strokeDasharray="5 10"
+                                      fill="none"
+                                      opacity="0.7"
+                                      style={{
+                                        strokeDashoffset: isSimRunning ? `${simulatedElapsed * 12}px` : '0px'
+                                      }}
+                                    />
+                                    {/* Neon conveyor line */}
+                                    <path
+                                      d={`M ${finalStartX} ${finalStartY} L ${finalEndX} ${finalEndY}`}
+                                      stroke={isFlowing ? "#10b981" : "#38bdf8"}
+                                      strokeWidth="1.8"
+                                      fill="none"
+                                      opacity="0.75"
+                                      strokeDasharray="5 6"
+                                      style={{
+                                        animation: isFlowing ? 'stroke-flow 1.2s linear infinite' : 'none'
+                                      }}
+                                      markerEnd={isFlowing ? `url(#arrow-flowing-${shop.id})` : `url(#arrow-idle-${shop.id})`}
+                                    />
+                                  </g>
+                                );
+                              }
+                            }
+
+                            return elements;
+                          });
+                        })()}
+>>>>>>> 7746fa9 (Basic Version)
                       </svg>
 
                       {ssState?.stations.map((st) => {
@@ -2312,6 +3010,7 @@ export default function SimulationPanel({
 
                   {/* Card Bottom Statistics footer */}
                   {!isSimpleView && (
+<<<<<<< HEAD
                     <footer className="p-2 border-t border-outline-variant/35 bg-[#101b33] flex justify-between items-center text-[10px] font-mono select-none">
                       <span className="text-on-surface-variant/70 pl-1">Delivered total:</span>
                       <span className="font-bold text-primary pr-1 bg-black/25 p-0.5 px-2 rounded-md">
@@ -2319,6 +3018,48 @@ export default function SimulationPanel({
                       </span>
                     </footer>
                   )}
+=======
+                    <footer className="p-2.5 border-t border-[#2d3a58]/40 bg-[#101b33] flex justify-between items-start text-[10px] font-mono select-none relative pb-10">
+                      <div className="flex flex-col gap-1 items-start pl-1 flex-1">
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex gap-1 items-center text-[8.5px] text-[#8fa2cf]/85">
+                            <span className="text-[#a5b4fc] font-semibold">Physical Dimensions:</span>
+                            <span className="font-bold text-emerald-400">
+                              {shop.width}m (W) &times; {shop.height}m (L)
+                            </span>
+                          </div>
+                          <div className="flex gap-1 items-center text-[8.5px] text-[#8fa2cf]/75">
+                            <span className="opacity-75">Visual Area:</span>
+                            <span className="font-bold text-sky-400">
+                              {getShopWidthPx(shop)}px &times; {getShopHeightPx(shop)}px
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-[8px] text-on-surface-variant/75 mt-1.5 flex gap-1 items-center">
+                          <span>Delivered total:</span>
+                          <span className="font-bold text-indigo-300 bg-indigo-500/10 px-1.5 py-0.2 rounded border border-indigo-500/15">
+                            {totalDone} units
+                          </span>
+                        </div>
+                      </div>
+                    </footer>
+                  )}
+
+                  {/* Drag Ball Option for resizing the card (pure visualization) */}
+                  <div
+                    onMouseDown={(e) => handleResizeStart(e, shop)}
+                    className="absolute bottom-2.5 right-2.5 w-6.5 h-6.5 rounded-full bg-gradient-to-tr from-[#5f5af7] to-[#b04af7] border-2 border-white shadow-[0_0_12px_rgba(139,92,246,0.65)] cursor-se-resize flex items-center justify-center hover:scale-115 hover:shadow-[0_0_15px_rgba(139,92,246,0.9)] active:scale-90 transition-transform z-30 group"
+                    title="Drag this ball to resize the shop layout (pure visualization)"
+                  >
+                    {/* Grab grip dots on drag ball */}
+                    <span className="flex flex-wrap w-2.5 h-2.5 gap-[2px] justify-center items-center pointer-events-none select-none">
+                      <span className="w-[3px] h-[3px] rounded-full bg-white opacity-95"></span>
+                      <span className="w-[3px] h-[3px] rounded-full bg-white opacity-95"></span>
+                      <span className="w-[3px] h-[3px] rounded-full bg-white opacity-95"></span>
+                      <span className="w-[3px] h-[3px] rounded-full bg-white opacity-95"></span>
+                    </span>
+                  </div>
+>>>>>>> 7746fa9 (Basic Version)
                 </div>
               );
             })}

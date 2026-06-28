@@ -25,6 +25,44 @@ export default function ShopLayoutConfigurationPanel({
 
   const selectedShop = shops.find(s => s.id === selectedShopId) || shops[0];
 
+<<<<<<< HEAD
+=======
+  const getLayoutValidationErrors = (shop: ShopTopology): string[] => {
+    const errors: string[] = [];
+    const stations = shop.stationsData || [];
+    if (stations.length === 0) return [];
+
+    stations.forEach(st => {
+      const visited = new Set<string>();
+      let currentId = st.id;
+      let reachExit = false;
+      while (currentId) {
+        if (currentId === 'exit') {
+          reachExit = true;
+          break;
+        }
+        if (visited.has(currentId)) {
+          break;
+        }
+        visited.add(currentId);
+        const currStation = stations.find(s => s.id === currentId);
+        if (!currStation) {
+          break;
+        }
+        currentId = currStation.successor || 'exit';
+      }
+      if (!reachExit) {
+        errors.push(`Station "${st.name}" forms a circular loop or cannot reach the exit conveyor / next shop.`);
+      }
+    });
+
+    return errors;
+  };
+
+  const layoutErrors = selectedShop ? getLayoutValidationErrors(selectedShop) : [];
+  const isLayoutValid = layoutErrors.length === 0;
+
+>>>>>>> 7746fa9 (Basic Version)
   const getHMS = (totalSeconds: number) => {
     const h = Math.floor(totalSeconds / 3600);
     const m = Math.floor((totalSeconds % 3600) / 60);
@@ -47,6 +85,7 @@ export default function ShopLayoutConfigurationPanel({
       return st;
     });
 
+<<<<<<< HEAD
     if (updatedFields.successor !== undefined) {
       const newSuccessor = updatedFields.successor;
       let attempts = 0;
@@ -90,6 +129,19 @@ export default function ShopLayoutConfigurationPanel({
     }
 
     onUpdateShop(selectedShop.id, { stationsData: nextStations });
+=======
+    // Enforce no self-pointing
+    nextStations = nextStations.map(st => {
+      if (st.successor === st.id) {
+        const otherSt = nextStations.find(o => o.id !== st.id);
+        st.successor = otherSt ? otherSt.id : 'exit';
+      }
+      return st;
+    });
+
+    onUpdateShop(selectedShop.id, { stationsData: nextStations });
+    setConfirmedShops(prev => prev.filter(id => id !== selectedShop.id));
+>>>>>>> 7746fa9 (Basic Version)
   };
 
   const handleStationHMSChange = (
@@ -238,17 +290,28 @@ export default function ShopLayoutConfigurationPanel({
                   <div className="space-y-4">
                     {/* Stations Incremental Modifier */}
                     <div>
+<<<<<<< HEAD
                       <label className="block text-[9.5px] text-on-surface-variant font-medium mb-1.5 select-none uppercase tracking-wide">
+=======
+                      <label className="block text-[8.5px] text-on-surface-variant font-medium mb-1 select-none uppercase tracking-wide">
+>>>>>>> 7746fa9 (Basic Version)
                         Station Capacity (Stations Count)
                       </label>
                       <div className="flex items-center bg-surface-container rounded-lg border border-outline-variant/40 overflow-hidden w-full max-w-[200px]">
                         <button
                           type="button"
                           onClick={() => onUpdateShop(selectedShop.id, { stations: Math.max(1, selectedShop.stations - 1) })}
+<<<<<<< HEAD
                           className="px-3 py-1.5 hover:bg-surface-container-highest border-r border-[#2d3a58] text-primary cursor-pointer transition-colors"
                           title="Reduce Stations"
                         >
                           <Minus className="w-3.5 h-3.5 text-primary" />
+=======
+                          className="px-2.5 py-1 hover:bg-surface-container-highest border-r border-[#2d3a58] text-primary cursor-pointer transition-colors"
+                          title="Reduce Stations"
+                        >
+                          <Minus className="w-3 h-3 text-primary" />
+>>>>>>> 7746fa9 (Basic Version)
                         </button>
                         <input
                           type="number"
@@ -264,33 +327,57 @@ export default function ShopLayoutConfigurationPanel({
                               onUpdateShop(selectedShop.id, { stations: Math.min(20, selectedShop.stations) });
                             }
                           }}
+<<<<<<< HEAD
                           className="w-full text-center font-mono font-bold text-xs text-on-surface bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+=======
+                          className="w-full text-center font-mono font-bold text-[10px] text-on-surface bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+>>>>>>> 7746fa9 (Basic Version)
                         />
                         <button
                           type="button"
                           onClick={() => onUpdateShop(selectedShop.id, { stations: Math.min(20, selectedShop.stations + 1) })}
+<<<<<<< HEAD
                           className="px-3 py-1.5 hover:bg-surface-container-highest border-l border-[#2d3a58] text-primary cursor-pointer transition-colors"
                           title="Increase Stations"
                         >
                           <Plus className="w-3.5 h-3.5 text-primary" />
+=======
+                          className="px-2.5 py-1 hover:bg-surface-container-highest border-l border-[#2d3a58] text-primary cursor-pointer transition-colors"
+                          title="Increase Stations"
+                        >
+                          <Plus className="w-3 h-3 text-primary" />
+>>>>>>> 7746fa9 (Basic Version)
                         </button>
                       </div>
                     </div>
 
                     {/* Intake parts capacity modifier (only for input shop) */}
                     {selectedShop.isInputShop && (
+<<<<<<< HEAD
                       <div className="pt-2 border-t border-outline-variant/15 md:col-span-1">
                         <label className="block text-[9.5px] text-on-surface-variant font-medium mb-1.5 select-none uppercase tracking-wide">
                           Intake Pipe Parts Count
+=======
+                      <div className="pt-1.5 border-t border-outline-variant/15 md:col-span-1">
+                        <label className="block text-[8.5px] text-on-surface-variant font-medium mb-1 select-none uppercase tracking-wide">
+                          Initial Parts Conveyor
+>>>>>>> 7746fa9 (Basic Version)
                         </label>
                         <div className="flex items-center bg-surface-container rounded-lg border border-outline-variant/40 overflow-hidden w-full max-w-[200px]">
                           <button
                             type="button"
                             onClick={() => onUpdateShop(selectedShop.id, { intakePartsCount: Math.max(1, (selectedShop.intakePartsCount || 15) - 1) })}
+<<<<<<< HEAD
                             className="px-3 py-1.5 hover:bg-surface-container-highest border-r border-[#2d3a58] text-[#52d3a3] cursor-pointer transition-colors"
                             title="Reduce Intake Count"
                           >
                             <Minus className="w-3.5 h-3.5 text-[#52d3a3]" />
+=======
+                            className="px-2.5 py-1 hover:bg-surface-container-highest border-r border-[#2d3a58] text-[#52d3a3] cursor-pointer transition-colors"
+                            title="Reduce Intake Count"
+                          >
+                            <Minus className="w-3 h-3 text-[#52d3a3]" />
+>>>>>>> 7746fa9 (Basic Version)
                           </button>
                           <input
                             type="number"
@@ -306,11 +393,16 @@ export default function ShopLayoutConfigurationPanel({
                                 onUpdateShop(selectedShop.id, { intakePartsCount: Math.min(10000, selectedShop.intakePartsCount) });
                               }
                             }}
+<<<<<<< HEAD
                             className="w-full text-center font-mono font-bold text-xs text-[#52d3a3] bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+=======
+                            className="w-full text-center font-mono font-bold text-[10px] text-[#52d3a3] bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+>>>>>>> 7746fa9 (Basic Version)
                           />
                           <button
                             type="button"
                             onClick={() => onUpdateShop(selectedShop.id, { intakePartsCount: Math.min(10000, (selectedShop.intakePartsCount || 15) + 1) })}
+<<<<<<< HEAD
                             className="px-3 py-1.5 hover:bg-surface-container-highest border-l border-[#2d3a58] text-[#52d3a3] cursor-pointer transition-colors"
                             title="Increase Intake Count"
                           >
@@ -318,19 +410,37 @@ export default function ShopLayoutConfigurationPanel({
                           </button>
                         </div>
                         <p className="text-[9px] text-emerald-400/90 font-mono mt-1 leading-snug">
+=======
+                            className="px-2.5 py-1 hover:bg-surface-container-highest border-l border-[#2d3a58] text-[#52d3a3] cursor-pointer transition-colors"
+                            title="Increase Intake Count"
+                          >
+                            <Plus className="w-3 h-3 text-[#52d3a3]" />
+                          </button>
+                        </div>
+                        <p className="text-[8px] text-emerald-400/90 font-mono mt-0.5 leading-snug">
+>>>>>>> 7746fa9 (Basic Version)
                           Specifies how many parts will come from the intake conduit. (Max 10,000)
                         </p>
                       </div>
                     )}
 
+<<<<<<< HEAD
                     <div className="p-2.5 bg-[#131b2e] border border-[#2d3a58]/35 rounded-lg flex flex-col gap-1.5">
                       <div className="flex justify-between items-center text-[10px]">
+=======
+                    <div className="p-2 bg-[#131b2e] border border-[#2d3a58]/35 rounded-lg flex flex-col gap-1">
+                      <div className="flex justify-between items-center text-[8.5px]">
+>>>>>>> 7746fa9 (Basic Version)
                         <span className="text-on-surface-variant">Entrance Path:</span>
                         <span className="font-mono text-emerald-400 font-bold">
                           {selectedShop.isInputShop ? 'Primary Intake Line' : 'Previous Shop Successor'}
                         </span>
                       </div>
+<<<<<<< HEAD
                       <div className="flex justify-between items-center text-[10px]">
+=======
+                      <div className="flex justify-between items-center text-[8.5px]">
+>>>>>>> 7746fa9 (Basic Version)
                         <span className="text-on-surface-variant">Exit Destination:</span>
                         <span className="font-mono text-sky-400 font-bold">
                           {selectedShop.isOutputShop ? 'Final Output Conveyor' : `Next Shop (${selectedShop.successor})`}
@@ -347,9 +457,33 @@ export default function ShopLayoutConfigurationPanel({
                   </p>
                 </div>
 
+<<<<<<< HEAD
                 {/* Confirm Layout for This Shop button */}
                 <button
                   type="button"
+=======
+                {/* Validation Errors Panel */}
+                {!isLayoutValid ? (
+                  <div className="bg-red-500/10 border border-red-500/30 p-3 rounded-lg text-xs flex flex-col gap-1.5 text-red-400">
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <span className="text-sm">⚠️</span> Incomplete Shop Routing Logic
+                    </div>
+                    <ul className="list-disc list-inside space-y-1 text-on-surface-variant/80 font-mono text-[10px]">
+                      {layoutErrors.map((err, idx) => (
+                        <li key={idx}>{err}</li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-[10px] italic opacity-80">
+                      Please adjust the successor of each station so that every part eventually reaches the exit/export conveyor.
+                    </p>
+                  </div>
+                ) : null}
+
+                {/* Confirm Layout for This Shop button */}
+                <button
+                  type="button"
+                  disabled={!isLayoutValid}
+>>>>>>> 7746fa9 (Basic Version)
                   onClick={() => {
                     if (!confirmedShops.includes(selectedShop.id)) {
                       setConfirmedShops(prev => [...prev, selectedShop.id]);
@@ -359,7 +493,13 @@ export default function ShopLayoutConfigurationPanel({
                     }
                   }}
                   className={`w-full h-11 rounded-lg font-bold text-xs select-none flex items-center justify-center gap-2 border transition-all ${
+<<<<<<< HEAD
                     confirmedShops.includes(selectedShop.id)
+=======
+                    !isLayoutValid
+                      ? 'bg-muted/10 text-on-surface-variant/40 border-outline-variant/20 cursor-not-allowed opacity-50'
+                      : confirmedShops.includes(selectedShop.id)
+>>>>>>> 7746fa9 (Basic Version)
                       ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 font-semibold'
                       : 'bg-primary hover:bg-[#385283] text-[#001a41] hover:text-white border-transparent cursor-pointer shadow-lg'
                   }`}
@@ -390,6 +530,14 @@ export default function ShopLayoutConfigurationPanel({
                       ? (selectedShop.isOutputShop ? "Exit: Export Outbound Conveyor" : `Exit: Next Shop (${selectedShop.successor})`)
                       : (selectedShop.stationsData?.find(s => s.id === targetSucc)?.name || 'Next');
 
+<<<<<<< HEAD
+=======
+                    const predecessors = selectedShop.stationsData?.filter(s => s.successor === station.id) || [];
+                    const predecessorNames = predecessors.length > 0
+                      ? predecessors.map(p => p.name).join(', ')
+                      : "Import Conveyor";
+
+>>>>>>> 7746fa9 (Basic Version)
                     return (
                       <React.Fragment key={station.id}>
                         <div 
@@ -419,12 +567,17 @@ export default function ShopLayoutConfigurationPanel({
                               onChange={(e) => handleUpdateStation(station.id, { successor: e.target.value })}
                               className="bg-[#10192e] border border-outline-variant/40 font-mono py-0.5 px-2 rounded text-xs text-primary font-bold focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary cursor-pointer max-w-[180px]"
                             >
+<<<<<<< HEAD
                               {/* Option to route downstream only and not already claimed */}
                               {selectedShop.stationsData?.slice(index + 1)
                                 .filter(s => {
                                   // Can select if it is the current successor OR not claimed by any other station
                                   return s.id === station.successor || !selectedShop.stationsData?.some(other => other.id !== station.id && other.successor === s.id);
                                 })
+=======
+                              {/* Option to route to any other station in the shop */}
+                              {selectedShop.stationsData?.filter(s => s.id !== station.id)
+>>>>>>> 7746fa9 (Basic Version)
                                 .map(s => (
                                   <option key={s.id} value={s.id} className="bg-[#0c1324] text-on-surface text-xs">
                                     {s.name}
@@ -549,7 +702,11 @@ export default function ShopLayoutConfigurationPanel({
                             <div className="flex items-center gap-2 bg-[#0e1626]/60 border border-dashed border-[#1e2a4a]/85 rounded px-2 md:px-2.5 h-[28px] justify-between text-[10px]">
                               <span className="font-mono text-[9px] text-blue-400 font-bold flex items-center gap-1 leading-none select-none">
                                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0"></span>
+<<<<<<< HEAD
                                 {station.name} &rarr; {targetSuccName}
+=======
+                                {predecessorNames} &rarr; {station.name} &rarr; {targetSuccName}
+>>>>>>> 7746fa9 (Basic Version)
                               </span>
                               <span className="text-[7.5px] font-mono text-on-surface-variant/40 shrink-0 uppercase select-none font-bold">
                                 Code: {targetSucc}
