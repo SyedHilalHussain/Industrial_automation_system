@@ -940,85 +940,7 @@ export default function SimulationPanel({
     panStartRef.current = { x: e.clientX - panX, y: e.clientY - panY };
   };
 
-  const getDefaultStationPos = (stationId: string, shopId: number) => {
-    const shop = shops.find(s => s.id === shopId);
-    if (!shop) return { x: 24, y: 65 };
-    const stationsList = shop.stationsData || [];
-    const idx = stationsList.findIndex(st => st.id === stationId);
-    const sIdx = idx >= 0 ? idx : 0;
-
-    const shopWidth = getShopWidthPx(shop);
-    const startPaddingX = 20;
-    const spacingX = 16;
-    const itemWidth = 110;
-    
-    // Calculate how many items can fit per row
-    const availableWidth = shopWidth - startPaddingX * 2;
-    const colWidth = itemWidth + spacingX;
-    const maxCols = Math.max(1, Math.floor((availableWidth + spacingX) / colWidth));
-
-    const colIdx = sIdx % maxCols;
-    const rowIdx = Math.floor(sIdx / maxCols);
-
-    const x = startPaddingX + colIdx * colWidth;
-    const y = 60 + rowIdx * (75 + 16); // 75px station height, 16px vertical spacing
-    return { x, y };
-  };
-
-  const handleStationMouseDown = (e: React.MouseEvent, stationId: string, shopId: number) => {
-    e.stopPropagation();
-    e.preventDefault();
-    
-    const currentPos = stationPositions[stationId] || getDefaultStationPos(stationId, shopId);
-    
-    isDraggingStationRef.current = stationId;
-    isDraggingStationParentShopIdRef.current = shopId;
-    stationDragStartRef.current = { x: e.clientX, y: e.clientY };
-    stationStartCoordsRef.current = { x: currentPos.x, y: currentPos.y };
-  };
-
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
-    if (resizingShopId !== null) {
-      const id = resizingShopId;
-      const shop = shops.find(s => s.id === id);
-      if (shop) {
-        const dx = (e.clientX - resizeStartRef.current.x) / zoomLevel;
-        const dy = (e.clientY - resizeStartRef.current.y) / zoomLevel;
-        const newWidth = Math.max(220, Math.min(800, resizeStartRef.current.width + dx));
-        const newHeight = Math.max(240, Math.min(1000, resizeStartRef.current.height + dy));
-        onUpdateShop(id, {
-          widthPx: Math.round(newWidth),
-          heightPx: Math.round(newHeight)
-        });
-      }
-      return;
-    }
-
-    if (isDraggingStationRef.current !== null && isDraggingStationParentShopIdRef.current !== null) {
-      const stationId = isDraggingStationRef.current;
-      const shopId = isDraggingStationParentShopIdRef.current;
-      const shop = shops.find(s => s.id === shopId);
-      if (shop) {
-        const dx = (e.clientX - stationDragStartRef.current.x) / zoomLevel;
-        const dy = (e.clientY - stationDragStartRef.current.y) / zoomLevel;
-        
-        const nextX = Math.round(stationStartCoordsRef.current.x + dx);
-        const nextY = Math.round(stationStartCoordsRef.current.y + dy);
-
-        const shopWidth = getShopWidthPx(shop);
-        const shopHeight = getShopHeightPx(shop);
-
-        const boundedX = Math.max(8, Math.min(shopWidth - 118, nextX));
-        const boundedY = Math.max(55, Math.min(shopHeight - 83, nextY));
-
-        setStationPositions(prev => ({
-          ...prev,
-          [stationId]: { x: boundedX, y: boundedY }
-        }));
-      }
-      return;
-    }
-
     if (isDraggingCardRef.current !== null) {
       const id = isDraggingCardRef.current;
       const dx = (e.clientX - dragStartRef.current.x) / zoomLevel;
@@ -1790,6 +1712,7 @@ export default function SimulationPanel({
                 &gt;&gt; PRODUCTION CONVEYOR EXIT LINE &gt;&gt;
               </span>
             </div>
+          </div>
 
             {/* Dynamic location for Outbound parts counter where final shop conveyor meets outbound conveyor line */}
             {(() => {
