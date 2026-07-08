@@ -105,10 +105,15 @@ export default function LayoutConfigurationPanel({
     const shop = shops.find(s => s.id === id);
     if (!shop) return;
 
+    if (exactValue === "") {
+      onUpdateShop(id, { [field]: NaN });
+      return;
+    }
+
     let newValue = exactValue !== null ? parseInt(exactValue) : (shop[field] as number) + delta;
     if (isNaN(newValue)) return;
 
-    newValue = Math.max(5, Math.min(100, newValue));
+    newValue = Math.max(1, Math.min(100, newValue));
     onUpdateShop(id, { [field]: newValue });
   };
 
@@ -318,8 +323,15 @@ export default function LayoutConfigurationPanel({
                           </button>
                           <input 
                             type="number" 
-                            value={shop.width}
+                            value={isNaN(shop.width) || shop.width === 0 ? "" : shop.width}
                             onChange={(e) => handleNumericChange(shop.id, 'width', 0, e.target.value)}
+                            onBlur={() => {
+                              if (isNaN(shop.width) || shop.width < 1) {
+                                onUpdateShop(shop.id, { width: 1 });
+                              } else if (shop.width > 100) {
+                                onUpdateShop(shop.id, { width: 100 });
+                              }
+                            }}
                             className="flex-1 bg-transparent border-none text-center font-mono text-base font-medium py-1 text-on-surface focus:outline-none focus:ring-0 w-full"
                           />
                           <button 
@@ -345,8 +357,15 @@ export default function LayoutConfigurationPanel({
                           </button>
                           <input 
                             type="number" 
-                            value={shop.height}
+                            value={isNaN(shop.height) || shop.height === 0 ? "" : shop.height}
                             onChange={(e) => handleNumericChange(shop.id, 'height', 0, e.target.value)}
+                            onBlur={() => {
+                              if (isNaN(shop.height) || shop.height < 1) {
+                                onUpdateShop(shop.id, { height: 1 });
+                              } else if (shop.height > 100) {
+                                onUpdateShop(shop.id, { height: 100 });
+                              }
+                            }}
                             className="flex-1 bg-transparent border-none text-center font-mono text-base font-medium py-1 text-on-surface focus:outline-none focus:ring-0 w-full"
                           />
                           <button 
@@ -365,17 +384,30 @@ export default function LayoutConfigurationPanel({
                         <div className="flex items-center border border-outline-variant bg-[#131b2e] focus-within:border-primary rounded">
                           <button 
                             type="button"
-                            onClick={() => onUpdateShop(shop.id, { stations: Math.max(1, shop.stations - 1) })}
+                            onClick={() => onUpdateShop(shop.id, { stations: Math.max(1, (isNaN(shop.stations) ? 1 : shop.stations) - 1) })}
                             className="p-2 hover:bg-surface-container-highest text-primary transition-colors cursor-pointer select-none"
                           >
                             <Minus className="w-3.5 h-3.5" />
                           </button>
-                          <span className="flex-1 text-center font-mono text-base font-medium py-1 text-on-surface select-none">
-                            {shop.stations}
-                          </span>
+                          <input 
+                            type="number" 
+                            value={isNaN(shop.stations) || shop.stations === 0 ? "" : shop.stations}
+                            onChange={(e) => {
+                              const val = e.target.value === "" ? NaN : parseInt(e.target.value);
+                              onUpdateShop(shop.id, { stations: val });
+                            }}
+                            onBlur={() => {
+                              if (isNaN(shop.stations) || shop.stations < 1) {
+                                onUpdateShop(shop.id, { stations: 1 });
+                              } else {
+                                onUpdateShop(shop.id, { stations: Math.min(20, shop.stations) });
+                              }
+                            }}
+                            className="flex-1 bg-transparent border-none text-center font-mono text-base font-medium py-1 text-on-surface focus:outline-none focus:ring-0 w-full"
+                          />
                           <button 
                             type="button"
-                            onClick={() => onUpdateShop(shop.id, { stations: Math.min(20, shop.stations + 1) })}
+                            onClick={() => onUpdateShop(shop.id, { stations: Math.min(20, (isNaN(shop.stations) ? 1 : shop.stations) + 1) })}
                             className="p-2 hover:bg-surface-container-highest text-primary transition-colors cursor-pointer select-none"
                           >
                             <Plus className="w-3.5 h-3.5" />
@@ -467,18 +499,12 @@ export default function LayoutConfigurationPanel({
           <div className="flex gap-4">
             <button 
               type="button"
-              onClick={triggerSaveNotification}
-              className="px-6 py-2 border border-[#2d3a58]/40 text-on-surface hover:bg-[#2d3449] rounded transition-colors font-mono text-[11px] tracking-wider uppercase font-bold cursor-pointer inline-flex items-center gap-1.5"
-            >
-              Save Draft Setup
-            </button>
-            <button 
-              type="button"
               onClick={() => handleNavigateWithValidation('shop-layout')}
-              className="px-6 py-2 bg-primary hover:bg-primary-hover text-[#0b1326] font-semibold rounded font-mono text-[11px] tracking-wider uppercase cursor-pointer"
+              className="px-6 py-3 bg-primary hover:bg-primary-hover text-[#0b1326] font-semibold rounded font-mono text-[11px] tracking-wider uppercase cursor-pointer flex items-center gap-1.5"
               id="btn-configure-shop-layouts"
             >
-              Configure Shop Layouts &rarr;
+              <span>Next: Configure shop layouts</span>
+              <ArrowRight className="w-4 h-4 text-[#0b1326]" />
             </button>
           </div>
         </div>

@@ -86,7 +86,22 @@ export default function ConfigurationPanel({ onProceed }: ConfigurationPanelProp
                 >
                   <Minus className="w-4 h-4" />
                 </button>
-                <div className="flex-1 text-center font-mono text-lg font-medium text-primary select-none">{shopCount}</div>
+                <input 
+                  type="number"
+                  value={isNaN(shopCount) || shopCount === 0 ? "" : shopCount}
+                  onChange={(e) => {
+                    const parsed = e.target.value === "" ? NaN : parseInt(e.target.value);
+                    setShopCount(parsed);
+                  }}
+                  onBlur={() => {
+                    if (isNaN(shopCount) || shopCount < 1) {
+                      setShopCount(1);
+                    } else if (shopCount > 6) {
+                      setShopCount(6);
+                    }
+                  }}
+                  className="flex-1 bg-transparent border-none text-center font-mono text-lg font-medium text-primary focus:outline-none focus:ring-0 p-0 w-full"
+                />
                 <button 
                   type="button"
                   className="w-12 h-full flex items-center justify-center border-l border-[#414755] hover:bg-surface-container-highest text-primary transition-colors cursor-pointer select-none"
@@ -97,37 +112,6 @@ export default function ConfigurationPanel({ onProceed }: ConfigurationPanelProp
                 </button>
               </div>
               <p className="text-[12px] italic text-on-surface-variant opacity-60">Defines the logical partitioning of your production floor.</p>
-            </div>
-
-            {/* Input Group: Dimensions */}
-            <div className="space-y-3">
-              <label className="block text-on-surface-variant text-sm font-medium">Initial shop dimensions (meters)</label>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="relative group">
-                  <div className="absolute left-3 top-2 label-caps text-[8px] opacity-60 font-bold">Width</div>
-                  <div className="h-14 border border-outline-variant rounded bg-[#131b2e] flex items-center justify-between px-4 pt-3 focus-within:border-primary transition-all">
-                    <input 
-                      type="number" 
-                      value={width}
-                      onChange={(e) => setWidth(Math.max(5, Math.min(100, parseInt(e.target.value) || 5)))}
-                      className="bg-transparent border-none focus:outline-none focus:ring-0 text-primary font-mono text-lg font-medium p-0 w-full"
-                    />
-                    <span className="font-mono text-xs opacity-40 ml-2 select-none">M</span>
-                  </div>
-                </div>
-                <div className="relative group">
-                  <div className="absolute left-3 top-2 label-caps text-[8px] opacity-60 font-bold">Length</div>
-                  <div className="h-14 border border-outline-variant rounded bg-[#131b2e] flex items-center justify-between px-4 pt-3 focus-within:border-primary transition-all">
-                    <input 
-                      type="number" 
-                      value={height}
-                      onChange={(e) => setHeight(Math.max(5, Math.min(100, parseInt(e.target.value) || 5)))}
-                      className="bg-transparent border-none focus:outline-none focus:ring-0 text-primary font-mono text-lg font-medium p-0 w-full"
-                    />
-                    <span className="font-mono text-xs opacity-40 ml-2 select-none">M</span>
-                  </div>
-                </div>
-              </div>
             </div>
 
             {/* Input Group: Stations */}
@@ -142,7 +126,22 @@ export default function ConfigurationPanel({ onProceed }: ConfigurationPanelProp
                 >
                   <Minus className="w-4 h-4" />
                 </button>
-                <div className="flex-1 text-center font-mono text-lg font-medium text-primary select-none">{stationCount}</div>
+                <input 
+                  type="number"
+                  value={isNaN(stationCount) || stationCount === 0 ? "" : stationCount}
+                  onChange={(e) => {
+                    const parsed = e.target.value === "" ? NaN : parseInt(e.target.value);
+                    setStationCount(parsed);
+                  }}
+                  onBlur={() => {
+                    if (isNaN(stationCount) || stationCount < 1) {
+                      setStationCount(1);
+                    } else if (stationCount > 24) {
+                      setStationCount(24);
+                    }
+                  }}
+                  className="flex-1 bg-transparent border-none text-center font-mono text-lg font-medium text-primary focus:outline-none focus:ring-0 p-0 w-full"
+                />
                 <button 
                   type="button"
                   className="w-12 h-full flex items-center justify-center border-l border-[#414755] hover:bg-surface-container-highest text-primary transition-colors cursor-pointer select-none"
@@ -181,28 +180,6 @@ export default function ConfigurationPanel({ onProceed }: ConfigurationPanelProp
           {/* Preview Canvas Container */}
           <div className="flex-1 min-h-[420px] relative preview-grid flex flex-col items-center justify-center p-8 overflow-hidden">
             
-            {/* Dimensions feedback gauge */}
-            <div className="absolute top-4 left-4 flex flex-col gap-2 bg-[#131b2e]/95 border border-outline-variant/40 rounded p-3 font-mono text-[10px] text-on-surface-variant min-w-[150px] z-10 shadow-lg backdrop-blur-xs">
-              <div className="flex flex-col gap-1">
-                <div className="flex justify-between font-bold">
-                  <span>WIDTH:</span>
-                  <span className="text-primary font-extrabold">{width}m / 100m</span>
-                </div>
-                <div className="w-full bg-black/40 h-1.5 rounded overflow-hidden border border-outline-variant/20">
-                  <div className="bg-primary h-full transition-all duration-300" style={{ width: `${width}%` }}></div>
-                </div>
-              </div>
-              <div className="flex flex-col gap-1 mt-1">
-                <div className="flex justify-between font-bold">
-                  <span>LENGTH:</span>
-                  <span className="text-primary font-extrabold">{height}m / 100m</span>
-                </div>
-                <div className="w-full bg-black/40 h-1.5 rounded overflow-hidden border border-outline-variant/20">
-                  <div className="bg-primary h-full transition-all duration-300" style={{ width: `${height}%` }}></div>
-                </div>
-              </div>
-            </div>
-
             {/* Isometric Visual Canvas */}
             <div className="relative w-full h-80 flex items-center justify-center" data-purpose="isometric-canvas">
               <div 
@@ -213,21 +190,50 @@ export default function ConfigurationPanel({ onProceed }: ConfigurationPanelProp
                   transform: 'rotate(35deg) skewX(-30deg) skewY(10deg) scale(0.95)'
                 }}
               >
-                {/* Station Nodes Dynamic Layout */}
+                {/* Shop Diamonds Layout */}
                 <div 
                   className="grid gap-4 p-6 w-full h-full content-center justify-items-center"
                   style={{
-                    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`
+                    gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(shopCount))}, minmax(0, 1fr))`
                   }}
                 >
-                  {Array.from({ length: stationCount }).map((_, index) => (
-                    <div 
-                      key={index} 
-                      className="w-12 h-12 border border-[#adc6ff]/40 bg-[#adc6ff]/10 flex items-center justify-center shadow-inner rounded-sm"
-                    >
-                      <div className="w-3.5 h-3.5 border border-primary/60 bg-primary/20 rotate-45 rounded-[1px]" />
-                    </div>
-                  ))}
+                  {(() => {
+                    const visualStationCount = isNaN(stationCount) || stationCount < 1 ? 1 : stationCount;
+                    const getDiamondSizeClass = (count: number) => {
+                      if (count <= 4) return "w-2.5 h-2.5";
+                      if (count <= 9) return "w-2 h-2";
+                      if (count <= 16) return "w-1.5 h-1.5";
+                      return "w-1 h-1";
+                    };
+                    const getGapClass = (count: number) => {
+                      if (count <= 4) return "gap-[6px]";
+                      if (count <= 9) return "gap-[4px]";
+                      if (count <= 16) return "gap-[3px]";
+                      return "gap-[2px]";
+                    };
+                    const gapClass = getGapClass(visualStationCount);
+
+                    return Array.from({ length: shopCount }).map((_, index) => (
+                      <div 
+                        key={index} 
+                        className="w-14 h-14 border border-[#adc6ff]/45 bg-[#adc6ff]/10 flex items-center justify-center shadow-inner rounded p-1 transition-all duration-300 hover:bg-[#adc6ff]/20"
+                      >
+                        <div 
+                          className={`grid ${gapClass} w-full h-full content-center justify-items-center`}
+                          style={{
+                            gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(visualStationCount))}, minmax(0, 1fr))`
+                          }}
+                        >
+                          {Array.from({ length: visualStationCount }).map((_, sIdx) => (
+                            <div 
+                              key={sIdx} 
+                              className={`${getDiamondSizeClass(visualStationCount)} border border-primary/70 bg-primary/30 rotate-45 rounded-[0.5px] transition-all shrink-0`} 
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                  })()}
                 </div>
               </div>
             </div>

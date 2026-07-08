@@ -5,7 +5,6 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    // IIS subfolder: https://infoedmedia.com/industrial_auto/
     base: '/industrial_auto/',
     plugins: [react(), tailwindcss()],
     resolve: {
