@@ -322,25 +322,6 @@ export default function ShopLayoutConfigurationPanel({
                         </div>
                         <p className="text-[8px] text-emerald-400/90 font-mono mt-0.5 leading-snug">
                           Specifies how many parts will come from the intake conduit. (Max 10,000)
-                            className="px-4 py-2 hover:bg-surface-container-highest border-r border-[#2d3a58] text-[#52d3a3] cursor-pointer transition-colors"
-                            title="Reduce Intake Count"
-                          >
-                            <Minus className="w-4 h-4 text-[#52d3a3]" />
-                          </button>
-                          <span className="flex-1 text-center font-mono font-bold text-sm text-[#52d3a3] select-none">
-                            {selectedShop.intakePartsCount || 15}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => onUpdateShop(selectedShop.id, { intakePartsCount: Math.min(100, (selectedShop.intakePartsCount || 15) + 1) })}
-                            className="px-4 py-2 hover:bg-surface-container-highest border-l border-[#2d3a58] text-[#52d3a3] cursor-pointer transition-colors"
-                            title="Increase Intake Count"
-                          >
-                            <Plus className="w-4 h-4 text-[#52d3a3]" />
-                          </button>
-                        </div>
-                        <p className="text-[10px] text-emerald-400 font-mono mt-1.5 leading-snug">
-                          Specifies how many parts will come from the intake conduit.
                         </p>
                       </div>
                     )}

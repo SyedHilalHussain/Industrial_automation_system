@@ -2746,7 +2746,6 @@ export default function SimulationPanel({
               );
             })}
           </div>
-        </div>
 
         {/* Global bottom telemetry overlay strip */}
         <footer className="bg-surface-container-lowest border-t border-outline-variant px-6 py-3 shrink-0 flex justify-between items-center text-left select-none z-10 font-mono text-[11px]">
