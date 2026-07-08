@@ -146,6 +146,22 @@ export default function SimulationPanel({
   const [resizingShopId, setResizingShopId] = useState<number | null>(null);
   const resizeStartRef = useRef({ width: 0, height: 0, x: 0, y: 0 });
 
+  // Helper function to get default station position when not in stationPositions
+  const getDefaultStationPos = (stationId: string, shopId: number): { x: number, y: number } => {
+    const shop = shops.find(s => s.id === shopId);
+    if (!shop) return { x: 0, y: 0 };
+    
+    const stationIndex = parseInt(stationId.split('-')[1]) || 1;
+    const baseX = 20;
+    const baseY = 60;
+    const spacingY = 45;
+    
+    return {
+      x: baseX,
+      y: baseY + (stationIndex - 1) * spacingY
+    };
+  };
+
   const handleResizeStart = (e: React.MouseEvent, shop: ShopTopology) => {
     e.stopPropagation();
     e.preventDefault();
@@ -553,7 +569,8 @@ export default function SimulationPanel({
       processedCounts: {},
       partsReleasedCount: 0,
       intakeQueue: [],
-      conveyorExitCount: 0
+      conveyorExitCount: 0,
+      intakeRoundRobinIndex: 0
     });
     setSimulatedElapsed(0);
     setSysNotice(null);
@@ -886,7 +903,7 @@ export default function SimulationPanel({
     }, 100);
 
     return () => clearInterval(interval);
-  }, [isSimRunning, simSpeed, targetEndMode, customTargetSeconds, shops]);
+  }, [isSimRunning, simSpeed, targetEndMode, customTargetSeconds, shops, stationPositions]);
 
   // Sidebar specific station buffer modification updater with persistence
   const handleModifyStationBuffer = (shopId: number, stationId: string, amount: number) => {
@@ -941,6 +958,36 @@ export default function SimulationPanel({
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
+    if (resizingShopId !== null) {
+      const dx = (e.clientX - resizeStartRef.current.x) / zoomLevel;
+      const dy = (e.clientY - resizeStartRef.current.y) / zoomLevel;
+      const nextWidth = Math.max(180, Math.min(480, Math.round(resizeStartRef.current.width + dx)));
+      const nextHeight = Math.max(200, Math.min(800, Math.round(resizeStartRef.current.height + dy)));
+      onUpdateShop(resizingShopId, { widthPx: nextWidth, heightPx: nextHeight });
+      return;
+    }
+
+    if (isDraggingStationRef.current !== null && isDraggingStationParentShopIdRef.current !== null) {
+      const stationId = isDraggingStationRef.current;
+      const shopId = isDraggingStationParentShopIdRef.current;
+      const shop = shops.find(s => s.id === shopId);
+      if (!shop) return;
+
+      const dx = (e.clientX - stationDragStartRef.current.x) / zoomLevel;
+      const dy = (e.clientY - stationDragStartRef.current.y) / zoomLevel;
+      const maxX = Math.max(0, getShopWidthPx(shop) - 122);
+      const maxY = Math.max(0, getShopHeightPx(shop) - 145);
+
+      setStationPositions(prev => ({
+        ...prev,
+        [stationId]: {
+          x: Math.max(0, Math.min(maxX, Math.round(stationStartCoordsRef.current.x + dx))),
+          y: Math.max(0, Math.min(maxY, Math.round(stationStartCoordsRef.current.y + dy)))
+        }
+      }));
+      return;
+    }
+
     if (isDraggingCardRef.current !== null) {
       const id = isDraggingCardRef.current;
       const dx = (e.clientX - dragStartRef.current.x) / zoomLevel;
@@ -973,6 +1020,15 @@ export default function SimulationPanel({
     isDraggingCardRef.current = id;
     dragStartRef.current = { x: e.clientX, y: e.clientY };
     cardStartRef.current = { x: currentX, y: currentY };
+  };
+
+  const handleStationMouseDown = (e: React.MouseEvent, stationId: string, shopId: number) => {
+    e.stopPropagation();
+    e.preventDefault();
+    isDraggingStationRef.current = stationId;
+    isDraggingStationParentShopIdRef.current = shopId;
+    stationDragStartRef.current = { x: e.clientX, y: e.clientY };
+    stationStartCoordsRef.current = stationPositions[stationId] || getDefaultStationPos(stationId, shopId);
   };
 
   const handleZoomIn = () => setZoomLevel(prev => Math.min(1.8, prev + 0.05));
