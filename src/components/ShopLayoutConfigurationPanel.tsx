@@ -326,8 +326,8 @@ export default function ShopLayoutConfigurationPanel({
                       </div>
                     )}
 
-                    <div className="p-3 bg-[#131b2e] border border-[#2d3a58]/35 rounded-lg flex flex-col gap-2">
-                      <div className="flex justify-between items-center text-xs">
+                    <div className="p-2 bg-[#131b2e] border border-[#2d3a58]/35 rounded-lg flex flex-col gap-1">
+                      <div className="flex justify-between items-center text-[8.5px]">
                         <span className="text-on-surface-variant">Entrance Path:</span>
                         <span className="font-mono text-emerald-400 font-bold">
                           {selectedShop.isInputShop ? 'Primary Intake Line' : 'Previous Shop Successor'}
